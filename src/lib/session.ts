@@ -1,13 +1,11 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { SESSION_COOKIE, passwordConfigured, readSession, type SessionUser } from './auth';
+import { SESSION_COOKIE, readSession, type SessionUser } from './auth';
 
-/** The signed-in user, or null. Password sessions stop counting when COMMANDO_PASSWORD is removed. */
+/** The signed-in user, or null. */
 export async function currentUser(): Promise<SessionUser | null> {
   const jar = await cookies();
-  const user = readSession(jar.get(SESSION_COOKIE)?.value);
-  if (user?.via === 'password' && !passwordConfigured()) return null;
-  return user;
+  return readSession(jar.get(SESSION_COOKIE)?.value);
 }
 
 /** For pages and server actions: sends signed-out visitors to the login page. */

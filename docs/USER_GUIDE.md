@@ -10,8 +10,6 @@ You stay signed in for 12 hours on that browser. Your name and *Sign out* are at
 
 ![Login page of Plugin Health with the Sign in with Supertext button](images/login.png)
 
-While the dashboard is being switched over, or when the Supertext login is down, the login page may also show a field for the shared password below the button. Use it only if you were given that password.
-
 ## Installations
 
 The start page lists every installation that has reported: one row per site URL and plugin.

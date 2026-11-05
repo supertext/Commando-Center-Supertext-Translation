@@ -6,7 +6,6 @@
 set -euo pipefail
 
 PORT=8091
-PASSWORD="ci-$(head -c 18 /dev/urandom | base64 | tr -d '/+=')"
 SESSION_SECRET="ci-$(head -c 36 /dev/urandom | base64 | tr -d '/+=')"
 ISSUER=http://127.0.0.1:8767/person
 
@@ -18,7 +17,7 @@ PG_URL="${PG_URL:-postgresql://postgres:postgres@127.0.0.1:5432/postgres}"
 start() {
   docker rm -f commando >/dev/null 2>&1 || true
   docker run -d --name commando --network host \
-    -e PORT=$PORT -e DATABASE_URL="$PG_URL" -e COMMANDO_DB_NAME=commando_ci -e COMMANDO_PASSWORD="$PASSWORD" \
+    -e PORT=$PORT -e DATABASE_URL="$PG_URL" -e COMMANDO_DB_NAME=commando_ci \
     -e COMMANDO_SESSION_SECRET="$SESSION_SECRET" -e COMMANDO_OIDC_ISSUER="$ISSUER" -e COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth.Admin.UI \
     commando >/dev/null
   for _ in $(seq 1 60); do
@@ -37,7 +36,7 @@ start
 code=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://127.0.0.1:$PORT/")
 [[ "$code" == "307 http://127.0.0.1:$PORT/login" ]] || { echo "expected a redirect to /login, got: $code"; exit 1; }
 login=$(curl -fsS "http://127.0.0.1:$PORT/login")
-grep -q 'name="password"' <<< "$login" || { echo "login page has no password field"; exit 1; }
+if grep -q 'name="password"' <<< "$login"; then echo "login page still has a password field"; exit 1; fi
 grep -q 'href="/auth/login"' <<< "$login" || { echo "login page has no Supertext sign-in"; exit 1; }
 loc=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://127.0.0.1:$PORT/auth/login")
 [[ "$loc" == "303 $ISSUER/connect/authorize?"* && "$loc" == *"code_challenge_method=S256"* && "$loc" == *"redirect_uri=http%3A%2F%2F127.0.0.1%3A$PORT%2Fauth%2Fcallback"* ]] \
@@ -55,7 +54,6 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json
 start
 logs=$(docker logs commando 2>&1)
 grep -qF 'migrate: database is up to date' <<< "$logs" || { echo "no migration message in the log"; exit 1; }
-if grep -qF "$PASSWORD" <<< "$logs"; then echo "the password appears in the log"; exit 1; fi
 if grep -qF "$SESSION_SECRET" <<< "$logs"; then echo "the session secret appears in the log"; exit 1; fi
 count=$(docker run --rm --network host -e PGPASSWORD=postgres "${PSQL_IMAGE:-postgres:16}" \
   psql -h 127.0.0.1 -U postgres -d commando_ci -tAc 'SELECT count(*) FROM installations')

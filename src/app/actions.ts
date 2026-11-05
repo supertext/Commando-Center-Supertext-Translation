@@ -3,39 +3,14 @@
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { SESSION_COOKIE, checkPassword, createSession, readSession } from '@/lib/auth';
+import { SESSION_COOKIE, readSession } from '@/lib/auth';
 import { requireAuth } from '@/lib/session';
 import { discover, endSessionUrl, oidcConfig, publicBaseUrl } from '@/lib/oidc';
 import { ID_TOKEN_COOKIE } from '@/lib/oidc-cookies';
-import { RateLimiter, clientIp } from '@/lib/rate-limit';
 import * as store from '@/lib/db';
 import { pingInstallation } from '@/lib/pinger';
 
-const loginAttempts = new RateLimiter(10, 15 * 60_000);
-
-export interface LoginState {
-  error?: string;
-}
-
-export async function login(_prev: LoginState, form: FormData): Promise<LoginState> {
-  const h = await headers();
-  if (!loginAttempts.take(clientIp(h))) return { error: 'Too many attempts. Wait 15 minutes and try again.' };
-  const pw = String(form.get('password') ?? '');
-  if (!checkPassword(pw)) return { error: 'Wrong password.' };
-  const session = createSession();
-  if (!session) return { error: 'The shared password is not configured.' };
-  const jar = await cookies();
-  jar.set(SESSION_COOKIE, session.value, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    expires: session.expires,
-  });
-  redirect('/');
-}
-
-/** Signs out here and, after a Supertext-account sign-in, at the Person Service too. */
+/** Signs out here and at the Person Service. */
 export async function logout(): Promise<void> {
   const jar = await cookies();
   const user = readSession(jar.get(SESSION_COOKIE)?.value);
@@ -44,7 +19,7 @@ export async function logout(): Promise<void> {
   jar.delete(ID_TOKEN_COOKIE);
   const cfg = oidcConfig();
   let target: string | null = null;
-  if (user?.via === 'oidc' && cfg) {
+  if (user && cfg) {
     try {
       const base = publicBaseUrl(await headers());
       target = endSessionUrl(cfg, await discover(cfg), `${base}/login`, idToken);

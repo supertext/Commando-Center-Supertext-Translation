@@ -1,8 +1,7 @@
 import { redirect } from 'next/navigation';
 import { isSignedIn } from '@/lib/session';
-import { passwordConfigured, sessionSecret } from '@/lib/auth';
+import { sessionSecret } from '@/lib/auth';
 import { oidcConfig, oidcProblem } from '@/lib/oidc';
-import LoginForm from './login-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +20,6 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const cfg = oidcConfig();
   const problem = oidcProblem(cfg, sessionSecret() !== null);
   const sso = cfg !== null && problem === null;
-  const password = passwordConfigured();
   const message = error ? ERRORS[error] : undefined;
   return (
     <div className="card login">
@@ -46,16 +44,10 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           </p>
         </div>
       )}
-      {password && (
-        <>
-          {sso && <p className="login-or muted">Or with the shared password</p>}
-          <LoginForm />
-        </>
-      )}
-      {!sso && !password && !problem && (
+      {!cfg && (
         <p className="notice error">
           Login is not configured yet. Set <code>COMMANDO_OIDC_ISSUER</code>, <code>COMMANDO_OIDC_CLIENT_ID</code> and{' '}
-          <code>COMMANDO_SESSION_SECRET</code> (or the shared <code>COMMANDO_PASSWORD</code>) in the service variables.
+          <code>COMMANDO_SESSION_SECRET</code> in the service variables.
         </p>
       )}
     </div>

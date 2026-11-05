@@ -8,7 +8,7 @@ The dashboard was called *Commando Center* until November 2026. Technical names 
 
 - **Next.js 16** (App Router, server components and server actions), TypeScript, Node.js 22, built as a standalone server (`output: 'standalone'`).
 - **PostgreSQL** through [`postgres`](https://github.com/porsager/postgres) (no ORM). Plain SQL migrations in `migrations/`, applied by `scripts/migrate.mjs` before every start.
-- **Sign-in with Supertext accounts** through Supertext's Person Service (OpenID Connect, see *Sign-in* below), with an optional shared fallback password (`COMMANDO_PASSWORD`). Every page and every server action calls `requireAuth()`. Only `/api/v1/report`, `/health`, `/login`, `/auth/login` and `/auth/callback` are public.
+- **Sign-in with Supertext accounts** through Supertext's Person Service (OpenID Connect, see *Sign-in* below). There is no other way in (no shared password). Every page and every server action calls `requireAuth()`. Only `/api/v1/report`, `/health`, `/login`, `/auth/login` and `/auth/callback` are public.
 - **Latest releases** come from the GitHub API (`Supertext/<plugin>` → newest non-draft release, pre-releases included, because 0.x versions are published as pre-releases). Cached for an hour in memory; errors are cached for 10 minutes. `GITHUB_TOKEN` raises the rate limit.
 
 | Path | What it is |
@@ -24,7 +24,7 @@ The dashboard was called *Commando Center* until November 2026. Technical names 
 | `src/lib/site-url.ts` | Normalizes the site URL, recognizes local and test hosts |
 | `src/lib/db.ts` | All queries |
 | `src/lib/db-url.mjs` | Database URL from `DATABASE_URL` + `COMMANDO_DB_NAME`, shared by the app and the migrations |
-| `src/lib/auth.ts`, `session.ts` | Signed session cookie (per sign-in method), password check, `requireAuth()`, `currentUser()` |
+| `src/lib/auth.ts`, `session.ts` | Signed session cookie, `requireAuth()`, `currentUser()` |
 | `src/lib/oidc.ts`, `oidc-cookies.ts`, `src/app/auth/{login,callback}/route.ts` | Sign-in with a Supertext account (OIDC): discovery, PKCE, ID token check, staff rule, sign-out at the Person Service |
 | `scripts/oidc-stand-in.mjs` | A stand-in Person Service for local development, the screenshots and the image check |
 | `src/lib/callback.ts` | The callback ping: URL check, address blocklist, the request itself |
@@ -204,8 +204,8 @@ The Person Service (`Supertext.Person`, IdentityServer 4) is Supertext's OpenID 
 1. `/auth/login` fetches the discovery document (cached an hour), creates `state`, `nonce` and a PKCE verifier, keeps them in the signed cookie `commando_oidc` (10 minutes, path `/auth`, HttpOnly, SameSite=Lax) and redirects to the authorize endpoint with scopes `openid profile email custom.profile`.
 2. `/auth/callback` checks `state` and the cookie's age, exchanges the code at the token endpoint (with the verifier), and checks the ID token: signature against the issuer's JWKS (RS256/384/512, ES256/384; `none` and HMAC refused; keys re-fetched once when the `kid` is unknown), `iss`, `aud` (and `azp` with several audiences), `exp`/`iat` with 2 minutes' leeway, `nonce`, `sub`. Then it reads the userinfo endpoint and merges its claims if the `sub` matches (the role may come from either).
 3. **Staff rule**: one of `COMMANDO_OIDC_ALLOWED_ROLES` (default `Administrator`, `Domain.Constants.Roles.Administrator` in the Person Service, the role its own admin pages require; it arrives in the `role` claim with the scope `custom.profile`), or an address or `@domain` from `COMMANDO_OIDC_ALLOWED_EMAILS` (not if `email_verified` is `false`). Others go back to `/login?error=denied`.
-4. The session cookie `commando_session` is `v2.<payload>.<hmac>` with the method, the Person Service `sub`, name and e-mail and the expiry (12 hours), signed with a key derived from `COMMANDO_SESSION_SECRET`. Password sessions use the same format, 14 days, signed with a key derived from the password, so neither kind of key can sign the other kind; removing `COMMANDO_PASSWORD` ends password sessions. The ID token is kept in `commando_idt` (HttpOnly, only if under 3.5 KB) solely as `id_token_hint` for signing out. No access or refresh token is kept.
-5. *Sign out* deletes both cookies and, for Supertext sessions, redirects to the end-session endpoint with `post_logout_redirect_uri=<center>/login`.
+4. The session cookie `commando_session` is `v2.<payload>.<hmac>` with the Person Service `sub`, name and e-mail and the expiry (12 hours), signed with a key derived from `COMMANDO_SESSION_SECRET`. Sessions from the shared password the dashboard had until November 2026 are refused. The ID token is kept in `commando_idt` (HttpOnly, only if under 3.5 KB) solely as `id_token_hint` for signing out. No access or refresh token is kept.
+5. *Sign out* deletes both cookies and redirects to the end-session endpoint with `post_logout_redirect_uri=<center>/login`.
 
 Outgoing requests go only to the configured issuer: https (http only for `localhost`/`127.0.0.1`, for the stand-in), every endpoint from the discovery document must be on the issuer's origin, redirects are not followed, 10 s timeout, 256 KB per answer. The callback is rate-limited (30 per 15 minutes per IP). Logs say why a sign-in failed or was refused, never codes, tokens, names or addresses. The callback and sign-out addresses come from `COMMANDO_PUBLIC_URL`, else from `X-Forwarded-Host`/`-Proto` (the Person Service only accepts registered addresses anyway).
 
@@ -223,7 +223,7 @@ Needs Node.js 22 and a PostgreSQL server (any version from 14).
 
 ```bash
 npm ci
-cp .env.example .env.local      # then set DATABASE_URL and the sign-in (stand-in, see Sign-in) or COMMANDO_PASSWORD
+cp .env.example .env.local      # then set DATABASE_URL and the sign-in (stand-in, see Sign-in)
 npm run dev                     # applies migrations, then http://localhost:3000
 ```
 
@@ -244,7 +244,7 @@ curl -i -H 'Content-Type: application/json' \
 | `npm run typecheck` | TypeScript |
 | `npm test` | Unit tests: URL normalization, report validation, the API key check and the callback URL check and address blocklist against `spec/`; real pings against local test servers (reachable, wrong answer, blocked, timeout, refused, DNS-rebinding style names); versions, sessions, the OIDC sign-in against a fake issuer (discovery, PKCE, every ID token check, userinfo, staff rule, sign-out URL), rate limit, database URL, release lookup |
 | `npm run test:integration` | Migrations (twice), the store (including which key check an installation keeps), the report endpoint and the ping after a report (throttle, *Ping now*, blocked and refused endpoints) against a real Postgres and a local ping server. Needs `TEST_DATABASE_URL` (default `postgres://postgres:postgres@127.0.0.1:5432/postgres`); drops and recreates the database `commando_test` on it |
-| `test/image-check.sh` | The Docker image: starts it twice against Postgres, checks health, the login redirect, the start of the Supertext sign-in against the stand-in Person Service, reports, migrations and that the password and the session secret never reach the log |
+| `test/image-check.sh` | The Docker image: starts it twice against Postgres, checks health, the login redirect, the start of the Supertext sign-in against the stand-in Person Service, reports, migrations that the login page has no password field, and that the session secret never reaches the log |
 
 CI (`.github/workflows/ci.yml`) runs all of them on every push and pull request, with Postgres 16 as a service.
 
@@ -299,5 +299,5 @@ Releases are published by `.github/workflows/release.yml` when the version is of
 - **Scheduled pings:** today pings follow reports and *Ping now*; a daily ping of all installations would catch sites that went dark without reporting.
 - **Remote checks:** a later version answers reports with checks to run (e.g. "test the API key", "translate a sample") and receives their results. The response format already allows extra fields.
 - **Authenticity:** reports aren't signed. If invented reports become a problem, plugins could sign with a key derived from the Supertext API key.
-- One shared password, no per-person accounts or audit log.
+- No audit log of who changed a mapping or a note.
 - The rate limit and the release cache live in memory: fine for one instance, not for several.

@@ -13,7 +13,7 @@ How to run the Supertext Plugin Health dashboard: requirements, deployment on Ra
 
 1. In the Supertext Railway project, create a service from the GitHub repository `Supertext/Commando-Center-Supertext-Translation` (branch `main`). Railway builds the `Dockerfile` at the repo root.
 2. Region: **ams** (Amsterdam), one replica.
-3. Variables (see *Settings* below): at least `DATABASE_URL` (reference the shared Postgres: `${{Postgres.DATABASE_URL}}`), `COMMANDO_DB_NAME=commando`, and for signing in `COMMANDO_OIDC_ISSUER`, `COMMANDO_OIDC_CLIENT_ID` and `COMMANDO_SESSION_SECRET` (or, until the Person Service client exists, the shared `COMMANDO_PASSWORD`).
+3. Variables (see *Settings* below): at least `DATABASE_URL` (reference the shared Postgres: `${{Postgres.DATABASE_URL}}`), `COMMANDO_DB_NAME=commando`, and for signing in `COMMANDO_OIDC_ISSUER`, `COMMANDO_OIDC_CLIENT_ID` and `COMMANDO_SESSION_SECRET`.
 4. Healthcheck path: `/health` (answers `ok` when the app reaches its database). Restart policy: on failure.
 5. Networking: add the custom domain and the DNS record Railway shows (CNAME). Railway issues the certificate.
 6. Deploy. On the first start the log shows `migrate: created database commando` and `migrate: applied 001_init.sql`.
@@ -36,7 +36,6 @@ All settings are environment variables (Railway service variables).
 | `COMMANDO_OIDC_ALLOWED_EMAILS` | no | – | Additional people by e-mail address or domain (`ada@supertext.com, @supertext.com`), for staff without the role |
 | `COMMANDO_OIDC_SCOPES` | no | `openid profile email custom.profile` | Scopes requested. `custom.profile` carries the `role` claim |
 | `COMMANDO_PUBLIC_URL` | no | from the request | The dashboard's public address (`https://commandocenter-production.up.railway.app`), used for the callback and sign-out addresses. Set it when the dashboard has a custom domain |
-| `COMMANDO_PASSWORD` | no | – | Shared fallback password, at least 12 characters, for when the Person Service can't be used. With Supertext sign-in set up, the login page shows it below *Sign in with Supertext*; remove it once everyone signs in with Supertext (password sessions end then too). Changing it signs out everyone who signed in with it |
 | `GITHUB_TOKEN` | no | – | A GitHub token (no scopes needed for public repositories). Without it, the release lookup is limited to 60 GitHub API requests per hour, which is enough for normal use |
 | `GITHUB_OWNER` | no | `Supertext` | GitHub owner of the plugin repositories |
 | `COMMANDO_PROXY_URL` | no | – | Public base URL of the Supertext translation proxy, for the *Translation proxy* tab (e.g. `https://review-proxy.up.railway.app`) |
@@ -45,7 +44,7 @@ All settings are environment variables (Railway service variables).
 | `PORT` | no | `8080` | Port the server listens on (Railway sets it) |
 | `COMMANDO_PING_ALLOW_PRIVATE`, `COMMANDO_PING_HOSTS` | **never in production** | – | Test-only switches for the callback ping (local test servers, docs screenshots). They let the dashboard connect to private addresses; see the developer guide |
 
-Keep the password, the session secret and a client secret only in Railway's variables: never in the repository, in chat or in tickets.
+Keep the session secret and a client secret only in Railway's variables: never in the repository, in chat or in tickets.
 
 ## Sign-in with Supertext accounts
 
@@ -73,7 +72,7 @@ Staff sign in with their Supertext account through Supertext's Person Service (O
 
    Deploy the Person Service. The dashboard only reads the user's name, e-mail address and roles; it calls no Supertext API with the access token.
 2. **Set the variables** on the Railway service: `COMMANDO_OIDC_ISSUER=https://www.supertext.com/person`, `COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth.Admin.UI`, `COMMANDO_SESSION_SECRET=<openssl rand -base64 48>` and, with a custom domain, `COMMANDO_PUBLIC_URL`. Railway redeploys.
-3. **Check**: open the dashboard, *Sign in with Supertext*, sign in with a staff account. Then remove `COMMANDO_PASSWORD` (or keep it as an emergency fallback known to few people).
+3. **Check**: open the dashboard, *Sign in with Supertext*, sign in with a staff account.
 
 To give a colleague access, give their Person Service account the `Administrator` role, or add their address to `COMMANDO_OIDC_ALLOWED_EMAILS`. To take it away, remove the role; their current session ends within 12 hours (change `COMMANDO_SESSION_SECRET` to end all sessions at once).
 
@@ -101,16 +100,15 @@ Delete the Railway service, then the database: `DROP DATABASE commando;` on the 
 
 | Problem | Cause and fix |
 | --- | --- |
-| Login says *Login is not configured* | Neither Supertext sign-in (`COMMANDO_OIDC_ISSUER`, `COMMANDO_OIDC_CLIENT_ID`, `COMMANDO_SESSION_SECRET`) nor `COMMANDO_PASSWORD` is set |
+| Login says *Login is not configured* | `COMMANDO_OIDC_ISSUER` or `COMMANDO_OIDC_CLIENT_ID` is missing |
 | Login says *Sign-in with a Supertext account is not configured correctly* | The message names the variable: usually `COMMANDO_SESSION_SECRET` missing or shorter than 32 characters |
 | Login says *COMMANDO_PUBLIC_URL must be an https URL* | Set it with `https://`, e.g. `https://pluginhealth.supertext.com`: the Person Service only sends people back to the registered https address, and browsers don't keep the session cookie over http |
 | The Person Service shows *invalid_request* / *unauthorized client* or *invalid redirect_uri* | The client isn't registered in that environment, or its `RedirectUris` don't contain exactly `<center address>/auth/callback`. With a custom domain, set `COMMANDO_PUBLIC_URL` and register that address |
 | *Your Supertext account isn't allowed to use Plugin Health* | The account has no `Administrator` role (and its address isn't in `COMMANDO_OIDC_ALLOWED_EMAILS`). The log says `sign-in refused: not allowed by the staff rule` |
 | *Signing in with Supertext didn't work* | The log line `sign-in failed: …` gives the reason (no names or tokens): e.g. `id_token audience mismatch` (wrong client ID) or `HTTP 400 from /person/connect/token` (client setup in the Person Service) |
-| *Supertext's login service can't be reached* | The dashboard couldn't fetch `<issuer>/.well-known/openid-configuration`. Check `COMMANDO_OIDC_ISSUER` and that the Person Service is up; the shared password still works if it is set |
+| *Supertext's login service can't be reached* | The dashboard couldn't fetch `<issuer>/.well-known/openid-configuration`. Check `COMMANDO_OIDC_ISSUER` and that the Person Service is up. While it is down, nobody can sign in |
 | *The sign-in took too long or was started in another browser* | The sign-in has to finish within 10 minutes in the same browser. Start again |
 | After *Sign out*, the Person Service shows its own *logged out* page | `PostLogoutRedirectUris` doesn't contain `<center address>/login` |
-| *Wrong password* after a password change | Expected: sign in with the new password |
 | *Too many attempts* on login | 10 attempts per 15 minutes per IP address. Wait, or restart the service |
 | Healthcheck fails, log shows `DATABASE_URL is not set` | Set the variable (reference the Postgres service) |
 | A push to `main` doesn't deploy | Railway's GitHub app has no access to this repository: under https://github.com/organizations/Supertext/settings/installations → Railway → Configure, add `Commando-Center-Supertext-Translation`. Then reconnect the service's source once (Railway → service → Settings → Source), so Railway creates its push trigger again |

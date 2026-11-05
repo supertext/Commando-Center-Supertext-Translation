@@ -31,7 +31,6 @@ export async function GET(request: NextRequest) {
       `${base}/auth/callback`,
     );
     const session = createSession({
-      via: 'oidc',
       sub: String(claims.sub),
       name: displayName(claims),
       email: typeof claims.email === 'string' ? claims.email : undefined,
