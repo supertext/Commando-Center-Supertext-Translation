@@ -7,7 +7,7 @@ import { APP_REPO, APP_VERSION, appReleaseUrl } from '@/lib/version';
 import { logout } from './actions';
 
 export const metadata: Metadata = {
-  title: 'Supertext Plugin Health',
+  title: 'Plugin Health | Supertext',
   description: 'Which Supertext plugin and system versions each installation runs.',
   robots: { index: false, follow: false },
   icons: { icon: { url: '/favicon.svg', type: 'image/svg+xml' } },
