@@ -19,7 +19,7 @@ start() {
   docker rm -f commando >/dev/null 2>&1 || true
   docker run -d --name commando --network host \
     -e PORT=$PORT -e DATABASE_URL="$PG_URL" -e COMMANDO_DB_NAME=commando_ci -e COMMANDO_PASSWORD="$PASSWORD" \
-    -e COMMANDO_SESSION_SECRET="$SESSION_SECRET" -e COMMANDO_OIDC_ISSUER="$ISSUER" -e COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth \
+    -e COMMANDO_SESSION_SECRET="$SESSION_SECRET" -e COMMANDO_OIDC_ISSUER="$ISSUER" -e COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth.Admin.UI \
     commando >/dev/null
   for _ in $(seq 1 60); do
     if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then return 0; fi

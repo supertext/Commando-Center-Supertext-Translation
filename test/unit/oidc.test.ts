@@ -19,7 +19,7 @@ import {
 } from '../../src/lib/oidc';
 
 const ISSUER = 'https://www.supertext.com/person';
-const CLIENT = 'Supertext.PluginHealth';
+const CLIENT = 'Supertext.PluginHealth.Admin.UI';
 const REDIRECT = 'https://commando.example/auth/callback';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });

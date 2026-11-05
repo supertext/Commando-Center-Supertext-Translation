@@ -3,7 +3,7 @@
 // clicks a button.
 //
 //   node scripts/oidc-stand-in.mjs            # http://127.0.0.1:8767/person
-//   COMMANDO_OIDC_ISSUER=http://127.0.0.1:8767/person COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth \
+//   COMMANDO_OIDC_ISSUER=http://127.0.0.1:8767/person COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth.Admin.UI \
 //   COMMANDO_SESSION_SECRET=<32+ characters> npm run dev
 //
 // The login page offers two invented people: Ada Muster (role Administrator, gets in) and

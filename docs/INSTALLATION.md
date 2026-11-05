@@ -29,7 +29,7 @@ All settings are environment variables (Railway service variables).
 | `DATABASE_URL` | yes | – | Postgres connection URL (`postgresql://user:password@host:5432/railway`) |
 | `COMMANDO_DB_NAME` | no | the database in `DATABASE_URL` | The dashboard's own database on that server; created on the first start. Letters, digits and `_` only |
 | `COMMANDO_OIDC_ISSUER` | for Supertext sign-in | – | The Person Service: `https://www.supertext.com/person` (production). https only |
-| `COMMANDO_OIDC_CLIENT_ID` | for Supertext sign-in | – | The client registered in the Person Service, e.g. `Supertext.PluginHealth` |
+| `COMMANDO_OIDC_CLIENT_ID` | for Supertext sign-in | – | The client registered in the Person Service, e.g. `Supertext.PluginHealth.Admin.UI` |
 | `COMMANDO_OIDC_CLIENT_SECRET` | no | – | Only if the client is registered with a secret (`RequireClientSecret: true`). The usual staff-app setup is PKCE without a secret |
 | `COMMANDO_SESSION_SECRET` | for Supertext sign-in | – | Random string of at least 32 characters (`openssl rand -base64 48`) that signs the session cookies. Changing it signs everyone out |
 | `COMMANDO_OIDC_ALLOWED_ROLES` | no | `Administrator` | Person Service roles that may sign in (comma-separated, case-insensitive). `Administrator` is the role of Supertext staff. Set it to an empty value to allow only the addresses below |
@@ -56,8 +56,8 @@ Staff sign in with their Supertext account through Supertext's Person Service (O
    ```json
    {
      "Enabled": true,
-     "ClientId": "Supertext.PluginHealth",
-     "ClientName": "Supertext Plugin Health",
+     "ClientId": "Supertext.PluginHealth.Admin.UI",
+     "ClientName": "Plugin Health Admin UI",
      "AllowedGrantTypes": [ "authorization_code" ],
      "RequireClientSecret": false,
      "RequirePkce": true,
@@ -72,7 +72,7 @@ Staff sign in with their Supertext account through Supertext's Person Service (O
    ```
 
    Deploy the Person Service. The dashboard only reads the user's name, e-mail address and roles; it calls no Supertext API with the access token.
-2. **Set the variables** on the Railway service: `COMMANDO_OIDC_ISSUER=https://www.supertext.com/person`, `COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth`, `COMMANDO_SESSION_SECRET=<openssl rand -base64 48>` and, with a custom domain, `COMMANDO_PUBLIC_URL`. Railway redeploys.
+2. **Set the variables** on the Railway service: `COMMANDO_OIDC_ISSUER=https://www.supertext.com/person`, `COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth.Admin.UI`, `COMMANDO_SESSION_SECRET=<openssl rand -base64 48>` and, with a custom domain, `COMMANDO_PUBLIC_URL`. Railway redeploys.
 3. **Check**: open the dashboard, *Sign in with Supertext*, sign in with a staff account. Then remove `COMMANDO_PASSWORD` (or keep it as an emergency fallback known to few people).
 
 To give a colleague access, give their Person Service account the `Administrator` role, or add their address to `COMMANDO_OIDC_ALLOWED_EMAILS`. To take it away, remove the role; their current session ends within 12 hours (change `COMMANDO_SESSION_SECRET` to end all sessions at once).

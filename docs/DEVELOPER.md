@@ -213,7 +213,7 @@ Locally, `node scripts/oidc-stand-in.mjs` serves a stand-in Person Service on `h
 
 ```bash
 node scripts/oidc-stand-in.mjs &
-COMMANDO_OIDC_ISSUER=http://127.0.0.1:8767/person COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth \
+COMMANDO_OIDC_ISSUER=http://127.0.0.1:8767/person COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth.Admin.UI \
 COMMANDO_SESSION_SECRET=local-session-secret-0123456789abcdef npm run dev
 ```
 
@@ -255,7 +255,7 @@ CI (`.github/workflows/ci.yml`) runs all of them on every push and pull request,
 ```bash
 GITHUB_API_URL=http://127.0.0.1:8766 COMMANDO_PROXY_URL=http://127.0.0.1:8766 COMMANDO_PROXY_TOKEN=docs-proxy-token \
 COMMANDO_PING_ALLOW_PRIVATE=1 COMMANDO_PING_HOSTS="$(node scripts/docs-screenshots.mjs --ping-hosts)" \
-COMMANDO_OIDC_ISSUER=http://127.0.0.1:8766/person COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth \
+COMMANDO_OIDC_ISSUER=http://127.0.0.1:8766/person COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth.Admin.UI \
 COMMANDO_SESSION_SECRET=local-session-secret-0123456789abcdef COMMANDO_DB_NAME=commando_docs npm run dev
 COMMANDO_URL=http://127.0.0.1:3000 npm run docs:screenshots
 ```
