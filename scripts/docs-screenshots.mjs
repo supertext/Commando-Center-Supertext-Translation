@@ -6,14 +6,17 @@
 //        GITHUB_API_URL=http://127.0.0.1:8766 COMMANDO_PROXY_URL=http://127.0.0.1:8766 COMMANDO_PROXY_TOKEN=docs-proxy-token \
 //        COMMANDO_PING_ALLOW_PRIVATE=1 \
 //        COMMANDO_PING_HOSTS="$(node scripts/docs-screenshots.mjs --ping-hosts)" \
-//        COMMANDO_DB_NAME=commando_docs COMMANDO_PASSWORD=… npm run dev
-//   2. COMMANDO_URL=http://127.0.0.1:3000 COMMANDO_PASSWORD=… npm run docs:screenshots
+//        COMMANDO_OIDC_ISSUER=http://127.0.0.1:8766/person COMMANDO_OIDC_CLIENT_ID=Supertext.CommandoCenter \
+//        COMMANDO_SESSION_SECRET=<32+ characters> COMMANDO_DB_NAME=commando_docs npm run dev
+//   2. COMMANDO_URL=http://127.0.0.1:3000 npm run docs:screenshots
 //
-// It sends sample reports for invented sites (no customer data), maps two of them to
+// It signs in through the stand-in Person Service (scripts/oidc-stand-in.mjs) as the invented
+// Ada Muster, sends sample reports for invented sites (no customer data), maps two of them to
 // invented clients through the UI, and saves cropped 1× PNGs.
 import http from 'node:http';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
+import { handleOidc } from './oidc-stand-in.mjs';
 
 // The sample sites' ping endpoints all go to the stand-in, except one that "is behind a firewall".
 const PING_HOSTS = {
@@ -29,8 +32,6 @@ if (process.argv.includes('--ping-hosts')) {
 }
 
 const BASE = (process.env.COMMANDO_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
-const PASSWORD = process.env.COMMANDO_PASSWORD;
-if (!PASSWORD) throw new Error('Set COMMANDO_PASSWORD (the one the center runs with).');
 const OUT = new URL('../docs/images/', import.meta.url);
 
 // Stand-in for the GitHub releases API: the latest release per plugin.
@@ -52,7 +53,9 @@ const PROXY_USAGE = {
 };
 
 const standIn = http
-  .createServer((req, res) => {
+  .createServer(async (req, res) => {
+    // Stand-in Person Service for signing in (OIDC).
+    if (await handleOidc(req, res, 'http://127.0.0.1:8766')) return;
     // Ping endpoints of the sample sites, by Host header.
     const host = (req.headers.host ?? '').split(':')[0];
     if (host !== '127.0.0.1' && host in PING_HOSTS) {
@@ -127,8 +130,8 @@ const shot = async (name, opts = {}) => page.screenshot({ path: new URL(name, OU
 
 await page.goto(`${BASE}/login`);
 await shot('login.png', { clip: { x: 440, y: 60, width: 480, height: 300 } });
-await page.fill('input[name=password]', PASSWORD);
-await Promise.all([page.waitForURL(`${BASE}/`), page.click('button[type=submit]')]);
+await page.click('a:has-text("Sign in with Supertext")');
+await Promise.all([page.waitForURL(`${BASE}/`), page.click('button[value=ada]')]);
 
 // Map the two Alpenblick sites to one client (new client, then existing), the Bergbahnen site to another.
 async function mapTo(urlPart, client, isNew) {

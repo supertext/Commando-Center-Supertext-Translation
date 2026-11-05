@@ -4,9 +4,13 @@ The Commando Center shows which Supertext plugin version each customer site runs
 
 ## Sign in
 
-Open the center and enter the shared password. You stay signed in for 14 days on that browser; *Sign out* is at the top right.
+Open the center and click **Sign in with Supertext**. You sign in with your Supertext account, as in Supertext's other admin tools (if you are already signed in there, you come straight back). You need the *Administrator* role in Supertext; without it, the center says *Your Supertext account isn't allowed to use the Commando Center*: ask an administrator for access.
 
-![Login page of the Commando Center with a password field and a Sign in button](images/login.png)
+You stay signed in for 12 hours on that browser. Your name and *Sign out* are at the top right; *Sign out* also signs you out of the Supertext login.
+
+![Login page of the Commando Center with the Sign in with Supertext button](images/login.png)
+
+While the center is being switched over, or when the Supertext login is down, the login page may also show a field for the shared password below the button. Use it only if you were given that password.
 
 ## Installations
 

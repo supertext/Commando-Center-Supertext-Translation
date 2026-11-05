@@ -12,7 +12,7 @@ Which Supertext plugin version does each customer site run, on which CMS, shop o
 
 Plugins report when their settings are saved and after an update. Reporting is on by default and can be turned off in each plugin's settings. The key check runs in the plugin; only its result is sent. No content, API keys or personal data are sent.
 
-Next.js and PostgreSQL, deployed on Railway.
+Staff sign in with their Supertext account (Supertext's Person Service, OpenID Connect). Next.js and PostgreSQL, deployed on Railway.
 
 The plugin side lives here too: [Supertext Plugin Health](plugin-health/README.md) (TypeScript, PHP, Python, .NET, Java) is the library every plugin bundles to send the reports and answer the ping.
 

@@ -101,7 +101,8 @@ input[type='checkbox'], input[type='radio'] { width: 16px; height: 16px; min-hei
 label.check { display: inline-flex; gap: 8px; align-items: center; color: var(--text); cursor: pointer; }
 
 /* Pill buttons: mint for the main action, a deep-green outline for the others. */
-button {
+button, a.button {
+  text-decoration: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -117,9 +118,9 @@ button {
   cursor: pointer;
   transition: background-color .15s, border-color .15s;
 }
-button:hover { background: var(--line); border-color: transparent; }
-button.primary { background: var(--mint); border-color: var(--mint); color: var(--text); font-weight: 600; }
-button.primary:hover { background: var(--mint-hover); border-color: var(--mint-hover); }
+button:hover, a.button:hover { background: var(--line); border-color: transparent; }
+a.button.primary, button.primary { background: var(--mint); border-color: var(--mint); color: var(--text); font-weight: 600; }
+button.primary:hover, a.button.primary:hover { background: var(--mint-hover); border-color: var(--mint-hover); }
 button.danger { border-color: var(--danger); color: var(--danger); }
 button.danger:hover { background: var(--bad-bg); border-color: var(--danger); }
 button:disabled { opacity: .5; cursor: default; }
@@ -164,7 +165,9 @@ dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .login { max-width: 400px; margin: 10vh auto; padding: 28px; }
 .login h1 { margin-bottom: 16px; }
 .login input { width: 100%; }
-.login .form-body > button { justify-self: stretch; }
+.login .form-body > button, .login .form-body > a.button { justify-self: stretch; }
+.login-or { margin: 22px 0 12px; font-size: 14px; }
+header.top .who { color: rgba(255, 255, 255, .85); font-size: 14px; margin-right: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
 
 /* Phones */
 @media (max-width: 640px) {

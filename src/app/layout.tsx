@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import Link from 'next/link';
 import './globals.css';
 import MainNav from '@/components/main-nav';
-import { isSignedIn } from '@/lib/session';
+import { currentUser } from '@/lib/session';
 import { APP_REPO, APP_VERSION, appReleaseUrl } from '@/lib/version';
 import { logout } from './actions';
 
@@ -16,7 +16,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: '#003230' };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const signedIn = await isSignedIn();
+  const user = await currentUser();
+  const signedIn = user !== null;
   const release = appReleaseUrl();
   return (
     <html lang="en">
@@ -31,6 +32,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </Link>
           {signedIn && <MainNav />}
           <span className="spacer" />
+          {user && (user.name || user.email) && (
+            <span className="who" title={user.email}>
+              {user.name ?? user.email}
+            </span>
+          )}
           {signedIn && (
             <form action={logout}>
               <button type="submit">Sign out</button>

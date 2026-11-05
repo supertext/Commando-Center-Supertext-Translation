@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { compareVersions, versionStatus } from '../../src/lib/semver';
-import { checkPassword, createSession, verifySession } from '../../src/lib/auth';
+import { checkPassword, createSession, readSession, verifySession } from '../../src/lib/auth';
 import { RateLimiter, clientIp } from '../../src/lib/rate-limit';
 import { databaseUrls } from '../../src/lib/db-url.mjs';
 import { clearReleaseCache, latestRelease, releaseUrl } from '../../src/lib/releases';
@@ -52,16 +52,42 @@ describe('auth', () => {
   });
 
   it('signs and verifies sessions', () => {
-    const s = createSession(1_000)!;
+    const s = createSession({ via: 'password' }, 1_000)!;
     expect(verifySession(s.value, 2_000)).toBe(true);
     expect(verifySession(s.value, s.expires.getTime() + 1)).toBe(false);
-    expect(verifySession(`${s.expires.getTime() + 999}.${s.value.split('.')[1]}`, 2_000)).toBe(false);
+    const [v, body, mac] = s.value.split('.');
+    const forged = Buffer.from(JSON.stringify({ via: 'password', exp: 9e15 })).toString('base64url');
+    expect(verifySession(`${v}.${forged}.${mac}`, 2_000)).toBe(false);
+    expect(verifySession(`${v}.${body}.x${mac}`, 2_000)).toBe(false);
     expect(verifySession('garbage', 2_000)).toBe(false);
     expect(verifySession(undefined, 2_000)).toBe(false);
   });
 
+  it('signs Supertext-account sessions with COMMANDO_SESSION_SECRET', () => {
+    const oldSecret = process.env.COMMANDO_SESSION_SECRET;
+    try {
+      delete process.env.COMMANDO_SESSION_SECRET;
+      expect(createSession({ via: 'oidc', sub: '7' })).toBeNull();
+      process.env.COMMANDO_SESSION_SECRET = 'x'.repeat(40);
+      const s = createSession({ via: 'oidc', sub: '7', name: 'Ada Muster', email: 'ada@supertext.com' }, 1_000)!;
+      expect(readSession(s.value, 2_000)).toEqual({ via: 'oidc', sub: '7', name: 'Ada Muster', email: 'ada@supertext.com' });
+      expect(s.expires.getTime()).toBe(1_000 + 12 * 3600_000);
+      // A password session can't be turned into an OIDC one, and changing the secret signs everyone out.
+      const pw = createSession({ via: 'password' }, 1_000)!;
+      const [, , pwMac] = pw.value.split('.');
+      const asOidc = Buffer.from(JSON.stringify({ via: 'oidc', exp: 9e15 })).toString('base64url');
+      expect(readSession(`v2.${asOidc}.${pwMac}`, 2_000)).toBeNull();
+      process.env.COMMANDO_SESSION_SECRET = 'y'.repeat(40);
+      expect(readSession(s.value, 2_000)).toBeNull();
+      expect(readSession(pw.value, 2_000)).not.toBeNull();
+    } finally {
+      if (oldSecret === undefined) delete process.env.COMMANDO_SESSION_SECRET;
+      else process.env.COMMANDO_SESSION_SECRET = oldSecret;
+    }
+  });
+
   it('a new password signs everyone out', () => {
-    const s = createSession(1_000)!;
+    const s = createSession({ via: 'password' }, 1_000)!;
     process.env.COMMANDO_PASSWORD = 'another long password';
     expect(verifySession(s.value, 2_000)).toBe(false);
   });

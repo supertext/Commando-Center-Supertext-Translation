@@ -3,8 +3,10 @@
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { SESSION_COOKIE, checkPassword, createSession } from '@/lib/auth';
+import { SESSION_COOKIE, checkPassword, createSession, readSession } from '@/lib/auth';
 import { requireAuth } from '@/lib/session';
+import { discover, endSessionUrl, oidcConfig, publicBaseUrl } from '@/lib/oidc';
+import { ID_TOKEN_COOKIE } from '@/lib/oidc-cookies';
 import { RateLimiter, clientIp } from '@/lib/rate-limit';
 import * as store from '@/lib/db';
 import { pingInstallation } from '@/lib/pinger';
@@ -21,7 +23,7 @@ export async function login(_prev: LoginState, form: FormData): Promise<LoginSta
   const pw = String(form.get('password') ?? '');
   if (!checkPassword(pw)) return { error: 'Wrong password.' };
   const session = createSession();
-  if (!session) return { error: 'Login is not configured (COMMANDO_PASSWORD missing or shorter than 12 characters).' };
+  if (!session) return { error: 'The shared password is not configured.' };
   const jar = await cookies();
   jar.set(SESSION_COOKIE, session.value, {
     httpOnly: true,
@@ -33,10 +35,24 @@ export async function login(_prev: LoginState, form: FormData): Promise<LoginSta
   redirect('/');
 }
 
+/** Signs out here and, after a Supertext-account sign-in, at the Person Service too. */
 export async function logout(): Promise<void> {
   const jar = await cookies();
+  const user = readSession(jar.get(SESSION_COOKIE)?.value);
+  const idToken = jar.get(ID_TOKEN_COOKIE)?.value;
   jar.delete(SESSION_COOKIE);
-  redirect('/login');
+  jar.delete(ID_TOKEN_COOKIE);
+  const cfg = oidcConfig();
+  let target: string | null = null;
+  if (user?.via === 'oidc' && cfg) {
+    try {
+      const base = publicBaseUrl(await headers());
+      target = endSessionUrl(cfg, await discover(cfg), `${base}/login`, idToken);
+    } catch {
+      target = null; // signed out here; the Person Service session ends on its own
+    }
+  }
+  redirect(target ?? '/login');
 }
 
 function id(form: FormData, field = 'id'): number {
