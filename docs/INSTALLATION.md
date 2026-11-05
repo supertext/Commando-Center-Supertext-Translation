@@ -103,6 +103,7 @@ Delete the Railway service, then the database: `DROP DATABASE commando;` on the 
 | --- | --- |
 | Login says *Login is not configured* | Neither Supertext sign-in (`COMMANDO_OIDC_ISSUER`, `COMMANDO_OIDC_CLIENT_ID`, `COMMANDO_SESSION_SECRET`) nor `COMMANDO_PASSWORD` is set |
 | Login says *Sign-in with a Supertext account is not configured correctly* | The message names the variable: usually `COMMANDO_SESSION_SECRET` missing or shorter than 32 characters |
+| Login says *COMMANDO_PUBLIC_URL must be an https URL* | Set it with `https://`, e.g. `https://pluginhealth.supertext.com`: the Person Service only sends people back to the registered https address, and browsers don't keep the session cookie over http |
 | The Person Service shows *invalid_request* / *unauthorized client* or *invalid redirect_uri* | The client isn't registered in that environment, or its `RedirectUris` don't contain exactly `<center address>/auth/callback`. With a custom domain, set `COMMANDO_PUBLIC_URL` and register that address |
 | *Your Supertext account isn't allowed to use Plugin Health* | The account has no `Administrator` role (and its address isn't in `COMMANDO_OIDC_ALLOWED_EMAILS`). The log says `sign-in refused: not allowed by the staff rule` |
 | *Signing in with Supertext didn't work* | The log line `sign-in failed: …` gives the reason (no names or tokens): e.g. `id_token audience mismatch` (wrong client ID) or `HTTP 400 from /person/connect/token` (client setup in the Person Service) |

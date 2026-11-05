@@ -90,6 +90,8 @@ describe('oidc settings', () => {
     expect(oidcProblem({ ...cfg, issuer: 'http://evil.example' }, true)).toMatch(/https/);
     expect(oidcProblem({ ...cfg, allowedRoles: [], allowedEmails: [] }, true)).toMatch(/Nobody/);
     expect(oidcProblem({ ...cfg, scopes: 'profile' }, true)).toMatch(/openid/);
+    expect(oidcProblem(cfg, true, { COMMANDO_PUBLIC_URL: 'http://pluginhealth.supertext.com' } as unknown as NodeJS.ProcessEnv)).toMatch(/PUBLIC_URL/);
+    expect(oidcProblem(cfg, true, { COMMANDO_PUBLIC_URL: 'https://pluginhealth.supertext.com' } as unknown as NodeJS.ProcessEnv)).toBeNull();
   });
 });
 

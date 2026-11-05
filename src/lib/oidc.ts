@@ -90,13 +90,15 @@ export function oidcConfig(env: NodeJS.ProcessEnv = process.env): OidcConfig | n
 }
 
 /** What's wrong with the OIDC settings (shown on the login page), or null. */
-export function oidcProblem(cfg: OidcConfig | null, sessionSecretSet: boolean): string | null {
+export function oidcProblem(cfg: OidcConfig | null, sessionSecretSet: boolean, env: NodeJS.ProcessEnv = process.env): string | null {
   if (!cfg) return null;
   if (!allowedUrl(cfg.issuer)) return 'COMMANDO_OIDC_ISSUER must be an https URL.';
   if (!sessionSecretSet) return 'COMMANDO_SESSION_SECRET is missing or shorter than 32 characters.';
   if (!cfg.scopes.split(' ').includes('openid')) return 'COMMANDO_OIDC_SCOPES must include openid.';
   if (cfg.allowedRoles.length === 0 && cfg.allowedEmails.length === 0)
     return 'Nobody is allowed: set COMMANDO_OIDC_ALLOWED_ROLES or COMMANDO_OIDC_ALLOWED_EMAILS.';
+  const pub = env.COMMANDO_PUBLIC_URL?.trim();
+  if (pub && !allowedUrl(pub)) return 'COMMANDO_PUBLIC_URL must be an https URL (e.g. https://pluginhealth.supertext.com).';
   return null;
 }
 
