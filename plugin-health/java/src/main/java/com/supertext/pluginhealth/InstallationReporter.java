@@ -13,8 +13,8 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * Version reports to the Supertext Commando Center and the result of the API key check
- * (plugin-health/spec/reporter.json; protocol: the Commando Center's docs/DEVELOPER.md → Report protocol).
+ * Version reports to the Supertext Plugin Health dashboard and the result of the API key check
+ * (plugin-health/spec/reporter.json; protocol: the dashboard's docs/DEVELOPER.md → Report protocol).
  *
  * <p>The reporter is stateless and thread-safe: the plugin loads its {@link ReporterState}
  * ({@link ReporterState#fromJson(String)}), passes it in, and stores the state it gets back

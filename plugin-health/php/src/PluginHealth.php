@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Supertext\PluginHealth;
 
 /**
- * Supertext Plugin Health: version reports to the Supertext Commando Center, the API key check result
- * and the plugin's ping endpoint (../spec/reporter.json; protocol: the Commando Center's
+ * Supertext Plugin Health: version reports to the Supertext Plugin Health dashboard, the API key check result
+ * and the plugin's ping endpoint (../spec/reporter.json; protocol: the dashboard's
  * docs/DEVELOPER.md → Report protocol).
  */
 final class PluginHealth

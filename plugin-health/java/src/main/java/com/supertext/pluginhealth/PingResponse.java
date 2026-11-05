@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 
 /**
  * The answer of the plugin's public ping endpoint ({@code GET <callback>?challenge=<c>}), which the
- * Commando Center calls to confirm a reported installation. Answers only while version reporting is
+ * Plugin Health dashboard calls to confirm a reported installation. Answers only while version reporting is
  * on (else 404); nothing a caller sends is echoed unless it matches {@code ^[A-Za-z0-9_-]{16,64}$}.
  * Answer with {@link #getStatus()}, {@link #getHeaders()} and {@link #getBody()} as they are.
  */

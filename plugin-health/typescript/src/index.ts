@@ -1,6 +1,6 @@
 /**
- * Supertext Plugin Health: version reports to the Supertext Commando Center, the API key check
- * result and the plugin's ping endpoint (../spec/reporter.json; protocol: the Commando Center's
+ * Supertext Plugin Health: version reports to the Supertext Plugin Health dashboard, the API key check
+ * result and the plugin's ping endpoint (../spec/reporter.json; protocol: the dashboard's
  * docs/DEVELOPER.md → Report protocol).
  *
  * The reporter is stateless: the plugin loads its `ReporterState` (a plain JSON object), passes it

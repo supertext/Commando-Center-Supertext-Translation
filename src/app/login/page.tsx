@@ -7,7 +7,7 @@ import LoginForm from './login-form';
 export const dynamic = 'force-dynamic';
 
 const ERRORS: Record<string, string> = {
-  denied: 'Your Supertext account isn’t allowed to use the Commando Center. Ask an administrator for access.',
+  denied: 'Your Supertext account isn’t allowed to use Plugin Health. Ask an administrator for access.',
   failed: 'Signing in with Supertext didn’t work. Try again.',
   expired: 'The sign-in took too long or was started in another browser. Try again.',
   unavailable: 'Supertext’s login service can’t be reached right now. Try again in a moment.',
@@ -25,7 +25,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const message = error ? ERRORS[error] : undefined;
   return (
     <div className="card login">
-      <h1>Commando Center</h1>
+      <h1>Plugin Health</h1>
       {message && (
         <p className="notice error" role="alert">
           {message}

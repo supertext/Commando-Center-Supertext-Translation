@@ -50,7 +50,7 @@ public sealed class ReporterOptions
 }
 
 /// <summary>
-/// Reports versions and the API key status to the Supertext Commando Center (plugin-health/spec/reporter.json).
+/// Reports versions and the API key status to the Supertext Plugin Health dashboard (plugin-health/spec/reporter.json).
 /// Stateless: load the plugin's stored <see cref="ReporterState"/>, pass it in, store the one you get back.
 /// Never throws (except when the caller's token is cancelled), and never sends the API key or its fingerprint.
 /// </summary>

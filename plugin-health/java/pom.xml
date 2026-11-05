@@ -10,7 +10,7 @@
   <packaging>jar</packaging>
 
   <name>Supertext Plugin Health for Java</name>
-  <description>Supertext Plugin Health: version reports, API key check results and the reachability ping of Supertext plugins, for the Supertext Commando Center.</description>
+  <description>Supertext Plugin Health: version reports, API key check results and the reachability ping of Supertext plugins, for the Supertext Plugin Health dashboard.</description>
   <url>https://github.com/Supertext/Commando-Center-Supertext-Translation/tree/main/plugin-health</url>
 
   <licenses>

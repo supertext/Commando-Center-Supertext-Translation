@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 /**
- * ../spec/reporter.json and the Commando Center's spec (../../spec: ping cases, report schema). That the
+ * ../spec/reporter.json and the dashboard's spec (../../spec: ping cases, report schema). That the
  * center accepts every report body is checked in the center's own tests with the TypeScript reference.
  */
 class ReporterTest {

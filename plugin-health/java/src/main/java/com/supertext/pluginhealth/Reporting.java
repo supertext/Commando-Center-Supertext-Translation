@@ -6,7 +6,7 @@ import java.util.Locale;
 /** Defaults and the on/off switch for version reports (plugin-health/spec/reporter.json). */
 public final class Reporting {
 
-    /** The live Supertext Commando Center. */
+    /** The live Supertext Plugin Health dashboard. */
     public static final String DEFAULT_REPORT_URL = "https://commandocenter-production.up.railway.app/api/v1/report";
 
     /** Timeout of a report. */

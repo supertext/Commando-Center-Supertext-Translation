@@ -1,4 +1,4 @@
-# Supertext Commando Center — production image (Railway).
+# Supertext Plugin Health — production image (Railway).
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1

@@ -1,4 +1,4 @@
-"""../spec/reporter.json and the Commando Center's spec (callback-vectors.json, report-v1.schema.json)."""
+"""../spec/reporter.json and the dashboard's spec (callback-vectors.json, report-v1.schema.json)."""
 
 from __future__ import annotations
 

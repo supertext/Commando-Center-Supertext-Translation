@@ -1,4 +1,4 @@
-// ../spec/reporter.json and the Commando Center's ping cases (spec/callback-vectors.json). That the
+// ../spec/reporter.json and the dashboard's ping cases (spec/callback-vectors.json). That the
 // center accepts every report body is checked in the center's own tests (test/unit/plugin-health.test.ts).
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'

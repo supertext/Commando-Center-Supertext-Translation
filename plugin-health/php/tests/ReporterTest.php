@@ -16,7 +16,7 @@ use Supertext\PluginHealth\PluginHealth;
 use Supertext\PluginHealth\ReporterState;
 
 /**
- * ../spec/reporter.json and the Commando Center's spec (spec/callback-vectors.json, spec/report-v1.schema.json).
+ * ../spec/reporter.json and the dashboard's spec (spec/callback-vectors.json, spec/report-v1.schema.json).
  * That the center accepts every report body is checked in the center's own tests (with the TypeScript reference).
  */
 final class ReporterTest extends TestCase

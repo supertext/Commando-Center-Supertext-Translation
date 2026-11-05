@@ -28,7 +28,7 @@ public final class ReporterResult {
         return event;
     }
 
-    /** Whether the Commando Center accepted the report (2xx). */
+    /** Whether the Plugin Health dashboard accepted the report (2xx). */
     public boolean isSent() {
         return sent;
     }

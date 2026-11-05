@@ -9,8 +9,8 @@ use Supertext\PluginHealth\Http\HttpRequest;
 use Supertext\PluginHealth\Http\HttpTransport;
 
 /**
- * Version reports to the Supertext Commando Center, the API key check result and the ping endpoint
- * (../spec/reporter.json; protocol: the Commando Center's docs/DEVELOPER.md → Report protocol).
+ * Version reports to the Supertext Plugin Health dashboard, the API key check result and the ping endpoint
+ * (../spec/reporter.json; protocol: the dashboard's docs/DEVELOPER.md → Report protocol).
  *
  * The reporter keeps no state of its own: the plugin loads its ReporterState, passes it in, and stores
  * the state it gets back (ReporterResult::$state). It never talks to Supertext itself: the plugin passes

@@ -6,7 +6,7 @@ using System.Text.Json.Nodes;
 namespace Supertext.PluginHealth.Tests;
 
 /// <summary>
-/// plugin-health/spec/reporter.json and the Commando Center's spec (callback-vectors.json endpoint cases,
+/// plugin-health/spec/reporter.json and the dashboard's spec (callback-vectors.json endpoint cases,
 /// report-v1.schema.json). That the center accepts every report body is checked in the center's own tests.
 /// </summary>
 public class ReporterTests

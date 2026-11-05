@@ -1,4 +1,4 @@
-"""Supertext Plugin Health: version reports to the Supertext Commando Center, the API key check result
+"""Supertext Plugin Health: version reports to the Supertext Plugin Health dashboard, the API key check result
 and the plugin's ping endpoint. Usage: ../README.md (plugin-health/README.md).
 
 Plugins bundle a copy under their own import root, so the package uses relative imports only.

@@ -6,6 +6,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 ### Changed
 
+- Renamed from *Commando Center* to **Supertext Plugin Health**, like the library the plugins use to report to it. Only the name changes: settings (`COMMANDO_*`), cookies, the database, the repository and the address stay the same. The suggested Person Service client ID is `Supertext.PluginHealth`.
 - **Sign in with your Supertext account** (OpenID Connect against Supertext's Person Service, authorization code with PKCE): only accounts with the `Administrator` role (or addresses set in `COMMANDO_OIDC_ALLOWED_EMAILS`) get in; 12-hour sessions; your name in the header; *Sign out* also signs out of the Supertext login. New settings `COMMANDO_OIDC_ISSUER`, `COMMANDO_OIDC_CLIENT_ID`, `COMMANDO_SESSION_SECRET` (and optional `COMMANDO_OIDC_CLIENT_SECRET`, `…_ALLOWED_ROLES`, `…_ALLOWED_EMAILS`, `…_SCOPES`, `COMMANDO_PUBLIC_URL`). The shared password `COMMANDO_PASSWORD` is now an optional fallback. Existing sessions end once (new cookie format). The installation guide has the client registration for the Person Service.
 - Next.js 16.4.5 (security fixes).
 - Supertext's look, as in the HubSpot app: deep-green header with rounded corners and the mint Supertext logo (also on the login page), warm off-white background, mint for the main action, the active tab and good states, pill buttons, tabs and filters, Inter bundled in `public/fonts/` (SIL OFL) and the S mark as favicon. One light theme (the dark variant is gone). Screenshots updated.

@@ -63,5 +63,5 @@ function schedule(task: () => Promise<unknown>) {
 }
 
 export function GET() {
-  return json(405, { ok: false, error: 'POST a version report here; see the Commando Center developer guide.' });
+  return json(405, { ok: false, error: 'POST a version report here; see the Plugin Health developer guide.' });
 }

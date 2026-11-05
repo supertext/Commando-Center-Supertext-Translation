@@ -4,12 +4,12 @@ using System.Text.RegularExpressions;
 namespace Supertext.PluginHealth;
 
 /// <summary>
-/// Version reports to the Supertext Commando Center, the API key check result and the callback ping
+/// Version reports to the Supertext Plugin Health dashboard, the API key check result and the callback ping
 /// (plugin-health/spec/reporter.json). See <see cref="InstallationReporter"/> and <see cref="PingResponse"/>.
 /// </summary>
 public static partial class Reporting
 {
-    /// <summary>The live Commando Center. <c>SUPERTEXT_REPORT_URL</c> in the environment overrides it.</summary>
+    /// <summary>The live Plugin Health dashboard. <c>SUPERTEXT_REPORT_URL</c> in the environment overrides it.</summary>
     public const string DefaultReportUrl = "https://commandocenter-production.up.railway.app/api/v1/report";
 
     /// <summary>Timeout of a report.</summary>

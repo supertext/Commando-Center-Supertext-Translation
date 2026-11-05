@@ -8,7 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Sends the report to the Commando Center. The default is {@link JdkHttpTransport}
+ * Sends the report to the Plugin Health dashboard. The default is {@link JdkHttpTransport}
  * ({@code java.net.http.HttpClient}); replace it in tests, or to route requests through your platform's HTTP stack.
  *
  * <p>Return the HTTP status of every answer; throw {@link IOException} only when there is no answer

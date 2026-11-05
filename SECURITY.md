@@ -13,4 +13,4 @@ Please include what you found, the steps to reproduce it, the affected version a
 
 Security fixes go into the latest release and `main`. Please check that the problem still exists there before reporting.
 
-This policy covers the code in this repository. For the deployed Commando Center and the Supertext service itself (supertext.com, the Supertext API), use the same contacts.
+This policy covers the code in this repository. For the deployed Plugin Health dashboard and the Supertext service itself (supertext.com, the Supertext API), use the same contacts.

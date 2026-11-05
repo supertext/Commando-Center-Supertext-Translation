@@ -1,6 +1,8 @@
 # Developer guide
 
-The Commando Center collects version reports from the Supertext plugins and shows them to Supertext staff: which site runs which plugin version on which system and runtime version, whether its API key works, whether the site is reachable from the internet, and since when. This guide covers the report protocol (what every plugin implements), the app's architecture, local setup, tests, deployment and releasing.
+Plugin Health collects version reports from the Supertext plugins and shows them to Supertext staff: which site runs which plugin version on which system and runtime version, whether its API key works, whether the site is reachable from the internet, and since when. This guide covers the report protocol (what every plugin implements), the app's architecture, local setup, tests, deployment and releasing.
+
+The dashboard was called *Commando Center* until November 2026. Technical names kept the old name so nothing breaks: the `COMMANDO_*` settings, the cookies `commando_*`, the database `commando`, the image check's image `commando`, the repository `Commando-Center-Supertext-Translation`, the Railway service and its address (which ships in every plugin as the report URL), and the user agent `Supertext-Commando-Center/…` of the ping. The plugins' library in `plugin-health/` is the *Plugin Health library*.
 
 ## Architecture
 
@@ -41,7 +43,7 @@ The Commando Center collects version reports from the Supertext plugins and show
 
 ## Look and feel
 
-The pages follow supertext.com, like the HubSpot app: the deep-green header bar (`#003230`, rounded bottom corners) with Supertext's mint logo (`public/supertext-logo.svg`, the website's own SVG) and *Commando Center* next to it, the warm off-white background (`#f7f5f3`), deep-green text and outlines, mint (`#78ffaf`) for the main action, the active tab and good states (*latest*, *key ok*, *reachable*), light grey lines (`#dfe1df`), and pill-shaped buttons, tabs and filters. Text is set in Inter, bundled in `public/fonts/` (variable font, Latin and Latin Extended; SIL Open Font License in `Inter-LICENSE.txt`) and declared with `@font-face` in `src/app/globals.css`, so no font is loaded from elsewhere. Supertext's heading font (ABC Ginto Nord) is licensed and not bundled; headings use Inter Bold. The colours are CSS variables at the top of `globals.css`; there is one light theme. Focus rings are deep green on the page and mint in the header. The favicon is the logo's S mark on deep green. The login page shows the header with the logo only. The Docker image copies `public/` next to the standalone server.
+The pages follow supertext.com, like the HubSpot app: the deep-green header bar (`#003230`, rounded bottom corners) with Supertext's mint logo (`public/supertext-logo.svg`, the website's own SVG) and *Plugin Health* next to it, the warm off-white background (`#f7f5f3`), deep-green text and outlines, mint (`#78ffaf`) for the main action, the active tab and good states (*latest*, *key ok*, *reachable*), light grey lines (`#dfe1df`), and pill-shaped buttons, tabs and filters. Text is set in Inter, bundled in `public/fonts/` (variable font, Latin and Latin Extended; SIL Open Font License in `Inter-LICENSE.txt`) and declared with `@font-face` in `src/app/globals.css`, so no font is loaded from elsewhere. Supertext's heading font (ABC Ginto Nord) is licensed and not bundled; headings use Inter Bold. The colours are CSS variables at the top of `globals.css`; there is one light theme. Focus rings are deep green on the page and mint in the header. The favicon is the logo's S mark on deep green. The login page shows the header with the logo only. The Docker image copies `public/` next to the standalone server.
 
 ## Report protocol
 
@@ -72,7 +74,7 @@ Content-Type: application/json
 | `schema` | yes | `1` |
 | `event` | yes | `installed` (first report of an installation), `settings_saved`, `upgraded` (plugin, system or runtime version changed since the last report), `api_key_check` (the key check result changed outside a settings save, see *The API key check*), `check` (sent by a command or test). Lower case and `_`, at most 40 characters; other values are stored as given. |
 | `site_url` | yes | The base URL of the installation, as the system knows it (WordPress `home_url()`, TYPO3 site base, Magento base URL of the default store, the shop domain for Shopify, …). Absolute `http`/`https`. |
-| `plugin.name` | yes | The plugin's GitHub repository name (`Typo3-Supertext-Translation`). The center reads the latest release from `github.com/Supertext/<name>`. |
+| `plugin.name` | yes | The plugin's GitHub repository name (`Typo3-Supertext-Translation`). The dashboard reads the latest release from `github.com/Supertext/<name>`. |
 | `plugin.version` | yes | From the plugin's official version source (see the conventions → *Releases*), never a second hardcoded copy. |
 | `system.name`, `system.version` | name yes | The CMS, PIM, shop or application: `WordPress`, `TYPO3`, `Magento`, `Shopify`, … Use the system's own spelling. |
 | `runtime.name`, `runtime.version` | no | `PHP`, `Node.js`, `Python`, `.NET`, `Java` and the full version. |
@@ -80,7 +82,7 @@ Content-Type: application/json
 | `api_key_configured` | no | `true`/`false`. Never the key itself. |
 | `callback.url` | no | The plugin's public ping endpoint (see *The callback ping*). Absolute http(s) URL on the site's host or a subdomain of it, at most 500 characters. A report without it keeps the stored one. |
 | `api_key_check.status` | no | Result of the latest automatic key check: `ok`, `invalid` (Supertext answered 401/403), `missing` (no key set), `unreachable` (network error, timeout, HTTP 5xx), `error` (any other answer). Other values are stored as given. |
-| `api_key_check.checked_at` | no | When the check ran, ISO 8601 with time zone. Missing, more than 5 minutes in the future or before 2020: the center uses the time it received the report. |
+| `api_key_check.checked_at` | no | When the check ran, ISO 8601 with time zone. Missing, more than 5 minutes in the future or before 2020: the dashboard uses the time it received the report. |
 | `api_key_check.http_status` | no | The HTTP status Supertext answered the check with |
 | `api_key_check.error_code` | no | Supertext's error code from the response body, if any (at most 100 characters) |
 
@@ -100,7 +102,7 @@ The installation keeps the **newest** key check: a report without one (an `upgra
 
 The body is `{"ok": true}` or `{"ok": false, "error": "…"}`. Plugins ignore any other fields: later versions may return, for example, remote checks to run.
 
-The site URL identifies the installation. The center lower-cases scheme and host, converts international domains to punycode, drops default ports, user info, query, fragment and trailing slashes, and keeps a sub-path (`https://example.com/de/shop`). Local and test hosts (`localhost`, private IPs, `*.test`, `*.local`, `*.localhost`, `*.ddev.site`, single-label names, …) are flagged and hidden by default. Same URL with two different plugins = two installations.
+The site URL identifies the installation. The dashboard lower-cases scheme and host, converts international domains to punycode, drops default ports, user info, query, fragment and trailing slashes, and keeps a sub-path (`https://example.com/de/shop`). Local and test hosts (`localhost`, private IPs, `*.test`, `*.local`, `*.localhost`, `*.ddev.site`, single-label names, …) are flagged and hidden by default. Same URL with two different plugins = two installations.
 
 ### When a plugin reports
 
@@ -113,7 +115,7 @@ The site URL identifies the installation. The center lower-cases scheme and host
 
 ### The API key check
 
-Every plugin checks the API key automatically, so administrators learn about a wrong key when they enter it, not when the first translation fails, and Supertext sees it in the center. The check is the Supertext SDK's cost-free `checkApiKey()` (`GET features` against the Supertext API; no translation, nothing billed); Plugin Health's reporter calls it through the key checker the plugin passes in. It runs whether or not version reporting is on; only the report depends on the setting.
+Every plugin checks the API key automatically, so administrators learn about a wrong key when they enter it, not when the first translation fails, and Supertext sees it in the dashboard. The check is the Supertext SDK's cost-free `checkApiKey()` (`GET features` against the Supertext API; no translation, nothing billed); Plugin Health's reporter calls it through the key checker the plugin passes in. It runs whether or not version reporting is on; only the report depends on the setting.
 
 **When**
 
@@ -143,7 +145,7 @@ Plugins that already have a *Test connection* button and an *authentication fail
 
 ### The callback ping
 
-So that Supertext can later call installations back (e.g. "translation ready"), the center checks whether each installation is reachable from the internet: it calls the plugin's ping endpoint and checks the answer.
+So that Supertext can later call installations back (e.g. "translation ready"), the dashboard checks whether each installation is reachable from the internet: it calls the plugin's ping endpoint and checks the answer.
 
 **The plugin's endpoint**
 
@@ -154,18 +156,18 @@ So that Supertext can later call installations back (e.g. "translation ready"), 
 - Hosted apps (Shopify, Wix) and plugins without a server part (the design-file scripts) send no `callback`.
 - `spec/callback-vectors.json` → `endpoint` has the cases Plugin Health's `pingResponse()` tests run.
 
-**The center's ping**
+**The dashboard's ping**
 
 - When: after a report with `callback.url`, once the answer has been sent (Next.js `after()`), when the URL is new, the event is `installed`, `settings_saved` or `check`, or the last ping is more than 6 hours old. Never more than once a minute per installation, at most 8 pings at once. Staff can press **Ping now** on the installation page. Local and test hosts are never pinged.
-- Safety (the URL comes from an unauthenticated report, so the center must not become a tool for probing other hosts or its own network): the URL's host must be the site's host or a subdomain of it (a leading `www.` of the site is ignored); `http`/`https` only, no user info; port 80, 443 or the site's own port. Every address the host resolves to is checked when the socket connects (no DNS rebinding), IP literals before: loopback, private, link-local (including cloud metadata `169.254.169.254`), CGNAT (`100.64.0.0/10`), unique-local IPv6 (Railway's private network), multicast and reserved ranges are refused. `GET` only, no redirects followed, no cookies, 5 s timeout, at most 4 KB read, TLS certificates verified. User agent `Supertext-Commando-Center/<version> (+https://github.com/Supertext/Commando-Center-Supertext-Translation)`.
-- Results: `reachable` (HTTP 200 and the challenge echoed by the right plugin; latency stored), `unreachable` (DNS, connection, timeout, TLS), `blocked` (any non-2xx, including redirects to a login page), `wrong_answer` (2xx but not the plugin's answer: a cache, maintenance or firewall page, another plugin), `refused` (the center didn't connect: other host, port or a private address). Each result has a short plain `detail` ("HTTP 302 to /wp-login.php", "connection timed out").
-- The center's outgoing IP addresses aren't fixed (Railway). Customers who only let known addresses in can't allow it yet; see the roadmap.
+- Safety (the URL comes from an unauthenticated report, so the dashboard must not become a tool for probing other hosts or its own network): the URL's host must be the site's host or a subdomain of it (a leading `www.` of the site is ignored); `http`/`https` only, no user info; port 80, 443 or the site's own port. Every address the host resolves to is checked when the socket connects (no DNS rebinding), IP literals before: loopback, private, link-local (including cloud metadata `169.254.169.254`), CGNAT (`100.64.0.0/10`), unique-local IPv6 (Railway's private network), multicast and reserved ranges are refused. `GET` only, no redirects followed, no cookies, 5 s timeout, at most 4 KB read, TLS certificates verified. User agent `Supertext-Commando-Center/<version> (+https://github.com/Supertext/Commando-Center-Supertext-Translation)`.
+- Results: `reachable` (HTTP 200 and the challenge echoed by the right plugin; latency stored), `unreachable` (DNS, connection, timeout, TLS), `blocked` (any non-2xx, including redirects to a login page), `wrong_answer` (2xx but not the plugin's answer: a cache, maintenance or firewall page, another plugin), `refused` (the dashboard didn't connect: other host, port or a private address). Each result has a short plain `detail` ("HTTP 302 to /wp-login.php", "connection timed out").
+- The dashboard's outgoing IP addresses aren't fixed (Railway). Customers who only let known addresses in can't allow it yet; see the roadmap.
 
 **Test-only switches** (never set in production; the image check makes sure the image doesn't set them): `COMMANDO_PING_ALLOW_PRIVATE=1` allows private addresses, `COMMANDO_PING_HOSTS=host=ip[:port],…` connects to fixed addresses instead of DNS (the `Host` header and TLS name stay the real host). The integration tests and `npm run docs:screenshots` use them.
 
 ### The setting in the plugins
 
-Every plugin has this setting, **on by default**, next to its other settings (environment variable `SUPERTEXT_VERSION_REPORTS=0` turns it off where settings live in the environment, e.g. Directus, Strapi, Ghost; the plugin's settings file elsewhere). The URL of the center can be overridden for tests with `SUPERTEXT_REPORT_URL`; the default is in Plugin Health.
+Every plugin has this setting, **on by default**, next to its other settings (environment variable `SUPERTEXT_VERSION_REPORTS=0` turns it off where settings live in the environment, e.g. Directus, Strapi, Ghost; the plugin's settings file elsewhere). The URL of the dashboard can be overridden for tests with `SUPERTEXT_REPORT_URL`; the default is in Plugin Health.
 
 Strings (use the CMS's own word for the system instead of *CMS* where it has one: shop, PIM, …):
 
@@ -180,7 +182,7 @@ Each plugin's `docs/INSTALLATION.md` lists the setting with exactly what is sent
 
 ## Translation proxy usage
 
-The *Translation proxy* tab shows which plugins send their translations through the Supertext translation proxy ([Localization-Review-Supertext-Translation](https://github.com/Supertext/Localization-Review-Supertext-Translation)), per proxy tenant (one Supertext API key, labelled in the proxy): plugin and version (compared with the latest release like the installations), SDK, uploads, uploads the proxy answered from its memory, key checks, first and last request. The center only shows usage: translations and review links stay in the proxy.
+The *Translation proxy* tab shows which plugins send their translations through the Supertext translation proxy ([Localization-Review-Supertext-Translation](https://github.com/Supertext/Localization-Review-Supertext-Translation)), per proxy tenant (one Supertext API key, labelled in the proxy): plugin and version (compared with the latest release like the installations), SDK, uploads, uploads the proxy answered from its memory, key checks, first and last request. The dashboard only shows usage: translations and review links stay in the proxy.
 
 - Read server-side from the proxy's `GET /api/usage` (`Authorization: Bearer <COMMANDO_PROXY_TOKEN>`, the proxy's `REVIEW_USAGE_TOKEN`; schema in the proxy's developer guide → *Usage API*), 5 s timeout, no redirects, 2 MB cap, invalid entries dropped, cached for a minute in memory.
 - `COMMANDO_PROXY_URL` is set by staff, like `GITHUB_API_URL`; it never comes from a report, so the callback ping's guard doesn't apply. Use the proxy's public URL.
@@ -191,13 +193,13 @@ The *Translation proxy* tab shows which plugins send their translations through 
 `plugin-health/` holds the library every plugin bundles for this protocol, in TypeScript (the reference), PHP, Python, .NET and Java: `InstallationReporter` (reports, state, failure backoff), `reportsEnabled()` and `pingResponse()`. It needs nothing from the Supertext SDK: the plugin passes the SDK's key check (`checkApiKey()` + `apiKeyFingerprint()`) and `SDK_VERSION` in. Usage, API and bundling: [plugin-health/README.md](../plugin-health/README.md).
 
 - Behaviour is pinned by `plugin-health/spec/reporter.json` (the reporter's scenarios, the setting, the ping answers) plus this repo's `spec/`. A protocol change here updates the spec, all five languages, their tests and `plugin-health/CHANGELOG.md` in the same commit.
-- `test/unit/plugin-health.test.ts` replays the reporter scenarios with the TypeScript reference and runs every report body through the center's own parser, so the client and the server can't drift apart.
-- CI: `.github/workflows/plugin-health.yml` (every language, plus a check that all five carry one version: `plugin-health/scripts/check-versions.sh`). Releases: a new `## X.Y.Z — YYYY-MM-DD` section in `plugin-health/CHANGELOG.md` → `.github/workflows/plugin-health-release.yml` tags `plugin-health-vX.Y.Z` (0.x as pre-releases), independent of the center's own releases.
+- `test/unit/plugin-health.test.ts` replays the reporter scenarios with the TypeScript reference and runs every report body through the dashboard's own parser, so the client and the server can't drift apart.
+- CI: `.github/workflows/plugin-health.yml` (every language, plus a check that all five carry one version: `plugin-health/scripts/check-versions.sh`). Releases: a new `## X.Y.Z — YYYY-MM-DD` section in `plugin-health/CHANGELOG.md` → `.github/workflows/plugin-health-release.yml` tags `plugin-health-vX.Y.Z` (0.x as pre-releases), independent of the dashboard's own releases.
 - Plugins bundle a copy with `scripts/vendor-plugin-health.sh <tag or commit>`; never edit a copy.
 
 ## Sign-in
 
-The Person Service (`Supertext.Person`, IdentityServer 4) is Supertext's OpenID Connect provider; production issuer `https://www.supertext.com/person`. The center is a client like Supertext's other staff tools (Diffuso admin, SQL generator): authorization code flow with PKCE, no client secret (`COMMANDO_OIDC_CLIENT_SECRET` is supported if the client gets one). The registration snippet is in the installation guide.
+The Person Service (`Supertext.Person`, IdentityServer 4) is Supertext's OpenID Connect provider; production issuer `https://www.supertext.com/person`. The dashboard is a client like Supertext's other staff tools (Diffuso admin, SQL generator): authorization code flow with PKCE, no client secret (`COMMANDO_OIDC_CLIENT_SECRET` is supported if the client gets one). The registration snippet is in the installation guide.
 
 1. `/auth/login` fetches the discovery document (cached an hour), creates `state`, `nonce` and a PKCE verifier, keeps them in the signed cookie `commando_oidc` (10 minutes, path `/auth`, HttpOnly, SameSite=Lax) and redirects to the authorize endpoint with scopes `openid profile email custom.profile`.
 2. `/auth/callback` checks `state` and the cookie's age, exchanges the code at the token endpoint (with the verifier), and checks the ID token: signature against the issuer's JWKS (RS256/384/512, ES256/384; `none` and HMAC refused; keys re-fetched once when the `kid` is unknown), `iss`, `aud` (and `azp` with several audiences), `exp`/`iat` with 2 minutes' leeway, `nonce`, `sub`. Then it reads the userinfo endpoint and merges its claims if the `sub` matches (the role may come from either).
@@ -211,7 +213,7 @@ Locally, `node scripts/oidc-stand-in.mjs` serves a stand-in Person Service on `h
 
 ```bash
 node scripts/oidc-stand-in.mjs &
-COMMANDO_OIDC_ISSUER=http://127.0.0.1:8767/person COMMANDO_OIDC_CLIENT_ID=Supertext.CommandoCenter \
+COMMANDO_OIDC_ISSUER=http://127.0.0.1:8767/person COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth \
 COMMANDO_SESSION_SECRET=local-session-secret-0123456789abcdef npm run dev
 ```
 
@@ -248,12 +250,12 @@ CI (`.github/workflows/ci.yml`) runs all of them on every push and pull request,
 
 ## Docs screenshots
 
-`npm run docs:screenshots` fills an empty center with invented sample sites and clients and saves the screenshots in `docs/images/`. It starts a stand-in on port 8766 for the GitHub releases API, the sample sites' ping endpoints, the translation proxy's usage API and the Person Service (it signs in as the invented Ada Muster), so start the center against it first (with a fresh database and a fresh process: the ping throttle lives in memory):
+`npm run docs:screenshots` fills an empty center with invented sample sites and clients and saves the screenshots in `docs/images/`. It starts a stand-in on port 8766 for the GitHub releases API, the sample sites' ping endpoints, the translation proxy's usage API and the Person Service (it signs in as the invented Ada Muster), so start the dashboard against it first (with a fresh database and a fresh process: the ping throttle lives in memory):
 
 ```bash
 GITHUB_API_URL=http://127.0.0.1:8766 COMMANDO_PROXY_URL=http://127.0.0.1:8766 COMMANDO_PROXY_TOKEN=docs-proxy-token \
 COMMANDO_PING_ALLOW_PRIVATE=1 COMMANDO_PING_HOSTS="$(node scripts/docs-screenshots.mjs --ping-hosts)" \
-COMMANDO_OIDC_ISSUER=http://127.0.0.1:8766/person COMMANDO_OIDC_CLIENT_ID=Supertext.CommandoCenter \
+COMMANDO_OIDC_ISSUER=http://127.0.0.1:8766/person COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth \
 COMMANDO_SESSION_SECRET=local-session-secret-0123456789abcdef COMMANDO_DB_NAME=commando_docs npm run dev
 COMMANDO_URL=http://127.0.0.1:3000 npm run docs:screenshots
 ```
@@ -278,7 +280,7 @@ Dependabot opens weekly pull requests (npm minor and patch grouped, GitHub Actio
 - **Checks** workflow (`.github/workflows/checks.yml`): [actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://docs.zizmor.sh/) lint the workflows on every push and pull request; dependency review fails a pull request that adds a package with a known vulnerability (moderate or worse). Actions are pinned to commit SHAs. Locally: `pip install actionlint-py zizmor`, then `actionlint` and `zizmor --offline .github/workflows`.
 - **Links** workflow (`.github/workflows/links.yml`): [lychee](https://lychee.cli.rs/) checks the links in all Markdown files weekly and when docs change on `main`; broken links open the issue "Broken links in the docs".
 - TypeScript is analysed by CodeQL default setup; secret scanning with push protection is on (both set by Remy's setup script).
-- The report endpoint is public by design (plugins carry no credentials for the center). It validates every field, limits bodies to 8 KB and reports to 60 per minute per IP. Anyone could send invented reports; treat the data as information, not as proof.
+- The report endpoint is public by design (plugins carry no credentials for the dashboard). It validates every field, limits bodies to 8 KB and reports to 60 per minute per IP. Anyone could send invented reports; treat the data as information, not as proof.
 
 ## Releasing
 
@@ -293,7 +295,7 @@ Releases are published by `.github/workflows/release.yml` when the version is of
 
 - **Plugin Health:** published to the package registries (npm, Packagist, PyPI, NuGet, Maven Central); until then plugins bundle a copy.
 - **Callbacks:** the ping only proves reachability. Real callbacks from Supertext will need a signature the plugin can verify (e.g. HMAC with a secret exchanged in the report response) before the plugin acts on them.
-- **Fixed outgoing addresses:** for customers whose firewalls only let known addresses in, the center needs a static egress IP (Railway static outbound IPs) published in the plugins' installation guides.
+- **Fixed outgoing addresses:** for customers whose firewalls only let known addresses in, the dashboard needs a static egress IP (Railway static outbound IPs) published in the plugins' installation guides.
 - **Scheduled pings:** today pings follow reports and *Ping now*; a daily ping of all installations would catch sites that went dark without reporting.
 - **Remote checks:** a later version answers reports with checks to run (e.g. "test the API key", "translate a sample") and receives their results. The response format already allows extra fields.
 - **Authenticity:** reports aren't signed. If invented reports become a problem, plugins could sign with a key derived from the Supertext API key.

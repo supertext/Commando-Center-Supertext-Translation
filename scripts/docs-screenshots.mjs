@@ -6,7 +6,7 @@
 //        GITHUB_API_URL=http://127.0.0.1:8766 COMMANDO_PROXY_URL=http://127.0.0.1:8766 COMMANDO_PROXY_TOKEN=docs-proxy-token \
 //        COMMANDO_PING_ALLOW_PRIVATE=1 \
 //        COMMANDO_PING_HOSTS="$(node scripts/docs-screenshots.mjs --ping-hosts)" \
-//        COMMANDO_OIDC_ISSUER=http://127.0.0.1:8766/person COMMANDO_OIDC_CLIENT_ID=Supertext.CommandoCenter \
+//        COMMANDO_OIDC_ISSUER=http://127.0.0.1:8766/person COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth \
 //        COMMANDO_SESSION_SECRET=<32+ characters> COMMANDO_DB_NAME=commando_docs npm run dev
 //   2. COMMANDO_URL=http://127.0.0.1:3000 npm run docs:screenshots
 //

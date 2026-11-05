@@ -1,16 +1,16 @@
 # User guide
 
-The Commando Center shows which Supertext plugin version each customer site runs, on which system and runtime version, whether its API key works, whether it can be reached from the internet, and what changed when. This guide is for Supertext staff who look things up and map sites to clients. Setup is in the [installation guide](INSTALLATION.md).
+Plugin Health shows which Supertext plugin version each customer site runs, on which system and runtime version, whether its API key works, whether it can be reached from the internet, and what changed when. This guide is for Supertext staff who look things up and map sites to clients. Setup is in the [installation guide](INSTALLATION.md).
 
 ## Sign in
 
-Open the center and click **Sign in with Supertext**. You sign in with your Supertext account, as in Supertext's other admin tools (if you are already signed in there, you come straight back). You need the *Administrator* role in Supertext; without it, the center says *Your Supertext account isn't allowed to use the Commando Center*: ask an administrator for access.
+Open the dashboard and click **Sign in with Supertext**. You sign in with your Supertext account, as in Supertext's other admin tools (if you are already signed in there, you come straight back). You need the *Administrator* role in Supertext; without it, the dashboard says *Your Supertext account isn't allowed to use Plugin Health*: ask an administrator for access.
 
 You stay signed in for 12 hours on that browser. Your name and *Sign out* are at the top right; *Sign out* also signs you out of the Supertext login.
 
-![Login page of the Commando Center with the Sign in with Supertext button](images/login.png)
+![Login page of Plugin Health with the Sign in with Supertext button](images/login.png)
 
-While the center is being switched over, or when the Supertext login is down, the login page may also show a field for the shared password below the button. Use it only if you were given that password.
+While the dashboard is being switched over, or when the Supertext login is down, the login page may also show a field for the shared password below the button. Use it only if you were given that password.
 
 ## Installations
 
@@ -25,7 +25,7 @@ The start page lists every installation that has reported: one row per site URL 
 | **Plugin** | Which Supertext plugin; links to its GitHub repository |
 | **Plugin version** | The installed version, linked to its release notes, with a status: **latest**, **X.Y.Z available** (an update exists), **newer than release** (a development build) or **no release** (no published release found) |
 | **API key** | The result of the plugin's latest automatic key check (hover for the time and details), see below |
-| **Reachable** | Whether the center reached the plugin from the internet with its last ping, see below |
+| **Reachable** | Whether the dashboard reached the plugin from the internet with its last ping, see below |
 | **System** / **Runtime** | The CMS, shop or PIM with its version, and the PHP, Node.js, … version |
 | **Last report** | When the plugin last reported and why: *installed*, *settings saved*, *upgraded* (the plugin, the system or the runtime changed), *key checked* (the key check result changed, e.g. a translation was rejected) or *check* |
 
@@ -33,7 +33,7 @@ The counts at the top show how many installations there are, how many have a plu
 
 ### API key check
 
-Each plugin checks its Supertext API key automatically when its settings are saved, when the key changes in its configuration, and when Supertext rejects a translation. The check costs nothing (it translates nothing). The center shows the latest result:
+Each plugin checks its Supertext API key automatically when its settings are saved, when the key changes in its configuration, and when Supertext rejects a translation. The check costs nothing (it translates nothing). The dashboard shows the latest result:
 
 | Badge | Meaning | What to do |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ Each plugin checks its Supertext API key automatically when its settings are sav
 
 ### Reachable from the internet
 
-So that Supertext can call installations back later (for example "your translation is ready"), the center pings each plugin from the internet: it calls the plugin's small public ping endpoint and checks that the plugin itself answers. It pings after a report (at most once a minute per site) and when you press **Ping now**.
+So that Supertext can call installations back later (for example "your translation is ready"), the dashboard pings each plugin from the internet: it calls the plugin's small public ping endpoint and checks that the plugin itself answers. It pings after a report (at most once a minute per site) and when you press **Ping now**.
 
 | Badge | Meaning | Typical cause |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ So that Supertext can call installations back later (for example "your translati
 | **not reachable** | No connection | Firewall, intranet-only site, DNS name not public, expired TLS certificate |
 | **blocked** | The site answered with an error or a redirect | The whole site is behind a login (typical for staging), a firewall rule returns 403 |
 | **wrong answer** | Something answered, but not the plugin | A cache, maintenance or firewall page in front of the site |
-| **refused** | The center didn't ping | The endpoint isn't on the site's own host, or points to a private address |
+| **refused** | The dashboard didn't ping | The endpoint isn't on the site's own host, or points to a private address |
 | **no endpoint** | This plugin version has no ping endpoint, or reporting is off | Recommend the plugin update |
 
 Hover a badge for the details and time. A site that isn't reachable still works normally: only future callbacks from Supertext need it.
@@ -89,7 +89,7 @@ The **History** lists every report, newest first, with its key check result and 
 
 ## Map installations to clients
 
-Plugins only send their URL, so the center doesn't know whose site it is. On the installation page, under **Client and notes**:
+Plugins only send their URL, so the dashboard doesn't know whose site it is. On the installation page, under **Client and notes**:
 
 - pick an existing client, or
 - type a name under *Or a new client* to create one,
@@ -121,6 +121,6 @@ If the tab says it isn't connected, `COMMANDO_PROXY_URL` and `COMMANDO_PROXY_TOK
 
 ## What the plugins send
 
-The site URL, the plugin, system and runtime versions, the SDK version, whether an API key is set, the result of the key check and the address of the plugin's ping endpoint. No content, no API keys and no personal data. Administrators can turn reporting off in each plugin's settings (*Send version information to Supertext*); a site that turned it off stops reporting, and its last report stays in the center.
+The site URL, the plugin, system and runtime versions, the SDK version, whether an API key is set, the result of the key check and the address of the plugin's ping endpoint. No content, no API keys and no personal data. Administrators can turn reporting off in each plugin's settings (*Send version information to Supertext*); a site that turned it off stops reporting, and its last report stays in the dashboard.
 
 Anyone who knows the address could send a report, so treat the data as information for support, not as proof.

@@ -7,7 +7,7 @@ import { APP_REPO, APP_VERSION, appReleaseUrl } from '@/lib/version';
 import { logout } from './actions';
 
 export const metadata: Metadata = {
-  title: 'Supertext Commando Center',
+  title: 'Supertext Plugin Health',
   description: 'Which Supertext plugin and system versions each installation runs.',
   robots: { index: false, follow: false },
   icons: { icon: { url: '/favicon.svg', type: 'image/svg+xml' } },
@@ -26,9 +26,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       </head>
       <body>
         <header className="top">
-          <Link href="/" className="brand" aria-label="Supertext Commando Center">
+          <Link href="/" className="brand" aria-label="Supertext Plugin Health">
             <img src="/supertext-logo.svg" alt="Supertext" width={122} height={22} />
-            <span className="for">Commando Center</span>
+            <span className="for">Plugin Health</span>
           </Link>
           {signedIn && <MainNav />}
           <span className="spacer" />
@@ -45,7 +45,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         </header>
         <main>{children}</main>
         <footer className="bottom">
-          Supertext Commando Center{' '}
+          Supertext Plugin Health{' '}
           {release ? (
             <a className="link" href={release} target="_blank" rel="noopener">
               v{APP_VERSION}

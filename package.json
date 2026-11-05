@@ -1,7 +1,7 @@
 {
   "name": "supertext-commando-center",
   "version": "0.1.0",
-  "description": "Supertext Commando Center: which Supertext plugin and system versions each installation runs.",
+  "description": "Supertext Plugin Health: which Supertext plugin and system versions each installation runs.",
   "private": true,
   "license": "MIT",
   "type": "module",

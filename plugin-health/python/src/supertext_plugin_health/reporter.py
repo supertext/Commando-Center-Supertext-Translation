@@ -1,6 +1,6 @@
-"""Version reports to the Supertext Commando Center, the API key check result and the ping endpoint.
+"""Version reports to the Supertext Plugin Health dashboard, the API key check result and the ping endpoint.
 
-Behaviour: ../spec/reporter.json (protocol: the Commando Center's docs/DEVELOPER.md → Report protocol).
+Behaviour: ../spec/reporter.json (protocol: the dashboard's docs/DEVELOPER.md → Report protocol).
 The reporter is stateless: the plugin loads its :class:`ReporterState` (stored as JSON, see
 :meth:`ReporterState.to_json` and :func:`reporter_state`), passes it in, and stores the state it gets
 back. It never talks to Supertext itself: the plugin passes a :class:`KeyChecker` built on the
@@ -173,7 +173,7 @@ def ping_response(challenge: str | None, plugin: str, enabled: bool) -> PingResp
 
 
 class InstallationReporter:
-    """Reports versions and the API key status to the Supertext Commando Center.
+    """Reports versions and the API key status to the Supertext Plugin Health dashboard.
 
     ``plugin.name`` is the plugin's GitHub repository name, ``plugin.version`` comes from its official
     version source; ``system`` is the CMS, PIM, shop or application in its own spelling. ``key_checker``

@@ -5,7 +5,7 @@ namespace Supertext.PluginHealth;
 
 /// <summary>
 /// The answer of the plugin's public ping endpoint (<c>GET &lt;callback&gt;?challenge=&lt;c&gt;</c>), which the
-/// Commando Center calls to confirm a reported callback URL. Answer with it as it is (GET, no login, not cached).
+/// Plugin Health dashboard calls to confirm a reported callback URL. Answer with it as it is (GET, no login, not cached).
 /// </summary>
 /// <param name="Status">200, 400 (bad or missing challenge) or 404 (reporting off).</param>
 /// <param name="Headers"><c>Content-Type: application/json</c> and <c>Cache-Control: no-store</c>.</param>

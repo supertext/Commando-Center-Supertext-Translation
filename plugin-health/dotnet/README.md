@@ -1,6 +1,6 @@
 # Supertext Plugin Health for .NET
 
-The .NET version of [Supertext Plugin Health](../README.md): version reports to the Supertext Commando Center, the API key check result and the plugin's ping endpoint answer. Namespace `Supertext.PluginHealth`, no dependencies beyond the BCL. Usage, concepts and bundling: [`../README.md`](../README.md).
+The .NET version of [Supertext Plugin Health](../README.md): version reports to the Supertext Plugin Health dashboard, the API key check result and the plugin's ping endpoint answer. Namespace `Supertext.PluginHealth`, no dependencies beyond the BCL. Usage, concepts and bundling: [`../README.md`](../README.md).
 
 ```csharp
 using Supertext.Sdk;
@@ -45,4 +45,4 @@ dotnet build -warnaserror
 dotnet test
 ```
 
-The tests run the shared vectors: [`../spec/reporter.json`](../spec/reporter.json) (defaults, setting, ping, every reporter scenario with a fake key checker and a fake center) and the center's [`spec/callback-vectors.json`](../../spec/callback-vectors.json) (endpoint cases) and [`spec/report-v1.schema.json`](../../spec/report-v1.schema.json) (report fields). They also check that `PluginHealthInfo.Version` equals the csproj version and the TypeScript package version.
+The tests run the shared vectors: [`../spec/reporter.json`](../spec/reporter.json) (defaults, setting, ping, every reporter scenario with a fake key checker and a fake center) and the dashboard's [`spec/callback-vectors.json`](../../spec/callback-vectors.json) (endpoint cases) and [`spec/report-v1.schema.json`](../../spec/report-v1.schema.json) (report fields). They also check that `PluginHealthInfo.Version` equals the csproj version and the TypeScript package version.

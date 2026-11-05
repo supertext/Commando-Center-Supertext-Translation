@@ -12,7 +12,7 @@
     <Version>0.1.0</Version>
     <Authors>Supertext AG</Authors>
     <Company>Supertext AG</Company>
-    <Description>Supertext Plugin Health: version reports to the Supertext Commando Center, the API key check result and the plugin's ping endpoint answer. No dependencies.</Description>
+    <Description>Supertext Plugin Health: version reports to the Supertext Plugin Health dashboard, the API key check result and the plugin's ping endpoint answer. No dependencies.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>supertext;translation;plugin;health</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>

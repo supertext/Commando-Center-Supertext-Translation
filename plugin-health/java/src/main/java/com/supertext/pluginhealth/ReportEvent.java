@@ -1,6 +1,6 @@
 package com.supertext.pluginhealth;
 
-/** The event of a version report. {@link #value()} is the string the Commando Center expects. */
+/** The event of a version report. {@link #value()} is the string the Plugin Health dashboard expects. */
 public enum ReportEvent {
     /** First report of this installation. */
     INSTALLED("installed"),

@@ -1,12 +1,12 @@
 # Supertext Plugin Health
 
-The plugin side of the [Supertext Commando Center](../README.md): every Supertext plugin uses it to
+The plugin side of the [Supertext Plugin Health dashboard](../README.md): every Supertext plugin uses it to
 
 - **report its versions** (plugin, CMS/shop/PIM, runtime, bundled SDK) when its settings are saved and after an update,
 - **report the result of its API key check** (the check itself is the Supertext SDK's `checkApiKey()`),
-- **answer the center's reachability ping** on a public endpoint.
+- **answer the dashboard's reachability ping** on a public endpoint.
 
-It lives next to the center because the protocol, the server and the client change together. It has no runtime dependencies and doesn't need the Supertext SDK: the plugin passes the SDK's key check in.
+It lives next to the dashboard because the protocol, the server and the client change together. It has no runtime dependencies and doesn't need the Supertext SDK: the plugin passes the SDK's key check in.
 
 | Language | Folder | Package / namespace | Needs |
 | --- | --- | --- | --- |
@@ -16,7 +16,7 @@ It lives next to the center because the protocol, the server and the client chan
 | .NET | [`dotnet/`](dotnet/) | `Supertext.PluginHealth` | .NET 8 |
 | Java | [`java/`](java/) | `com.supertext.pluginhealth` (`com.supertext:supertext-plugin-health`) | Java 17+ |
 
-All five share one version (`CHANGELOG.md` here) and pass the same vectors: [`spec/reporter.json`](spec/reporter.json) plus the center's [`spec/`](../spec/) (report schema and examples, ping cases). The protocol is in the center's [developer guide → Report protocol](../docs/DEVELOPER.md#report-protocol).
+All five share one version (`CHANGELOG.md` here) and pass the same vectors: [`spec/reporter.json`](spec/reporter.json) plus the dashboard's [`spec/`](../spec/) (report schema and examples, ping cases). The protocol is in the dashboard's [developer guide → Report protocol](../docs/DEVELOPER.md#report-protocol).
 
 ## What a plugin does
 
@@ -72,6 +72,6 @@ Plugins ship a copy, like the Supertext SDK: sites install nothing besides the p
 | .NET | `dotnet build -warnaserror && dotnet test` |
 | Java | `mvn -B verify` |
 
-CI (`.github/workflows/plugin-health.yml`) runs all five on every change to `plugin-health/` or `spec/`. The center's own tests check that every report the TypeScript reference builds is accepted by the center (`test/unit/plugin-health.test.ts`).
+CI (`.github/workflows/plugin-health.yml`) runs all five on every change to `plugin-health/` or `spec/`. The dashboard's own tests check that every report the TypeScript reference builds is accepted by the dashboard (`test/unit/plugin-health.test.ts`).
 
 A behaviour change starts with `spec/reporter.json`, then all five languages, their tests, this README and `CHANGELOG.md`, in one commit. Releases: a new `## X.Y.Z — YYYY-MM-DD` section in `CHANGELOG.md` with the same version in every language's version file and constant tags `plugin-health-vX.Y.Z` (`.github/workflows/plugin-health-release.yml`).
