@@ -512,6 +512,7 @@ final class ReporterTest extends TestCase
         self::assertSame('A', array_key_first($result->checks ?? []));
         $body = json_decode((string) $fakes->reports[0]->body, true, 512, JSON_THROW_ON_ERROR);
         self::assertIsArray($body);
+        self::assertIsArray($body['api_keys']);
         self::assertCount(20, $body['api_keys']);
     }
 }
