@@ -25,6 +25,19 @@ function changes(history: ReportRow[], k: number, i: Installation): string[] {
   if (before.api_key_configured !== row.api_key_configured && row.api_key_configured !== null) {
     out.push(row.api_key_configured ? 'API key set' : 'API key removed');
   }
+  // Named keys: what changed per key, compared with the last report that had them.
+  if (row.api_keys) {
+    const prevKeys = history.slice(k + 1).find((h) => h.api_keys)?.api_keys ?? null;
+    for (const key of row.api_keys) {
+      const old = prevKeys?.find((p) => p.name === key.name);
+      if (!old) out.push(`${key.name}: ${key.status ? keyStatusWord(key.status) : key.configured ? 'set' : 'not set'}`);
+      else if (key.status && old.status !== key.status)
+        out.push(`${key.name}: ${old.status ? `${keyStatusWord(old.status)} → ` : ''}${keyStatusWord(key.status)}`);
+      else if (old.configured !== key.configured && key.configured !== null) out.push(`${key.name}: ${key.configured ? 'set' : 'removed'}`);
+    }
+    for (const old of prevKeys ?? []) if (!row.api_keys.some((x) => x.name === old.name)) out.push(`${old.name}: no longer reported`);
+    return out;
+  }
   // Reports without a check (e.g. upgrades) don't change the key status: compare with the last check before.
   if (row.api_key_status) {
     const prev = history.slice(k + 1).find((h) => h.api_key_status)?.api_key_status ?? null;
@@ -101,8 +114,29 @@ export default async function InstallationPage({
             </dd>
             <dt>SDK</dt>
             <dd className="mono">{i.sdk_version ?? '–'}</dd>
-            <dt>API key</dt>
+            <dt>{i.api_keys ? 'API keys' : 'API key'}</dt>
             <dd>
+              {i.api_keys ? (
+                i.api_keys.length === 0 ? (
+                  <span className="muted small">none reported</span>
+                ) : (
+                  <ul className="keys">
+                    {i.api_keys.map((key) => (
+                      <li key={key.name} className="row" style={{ gap: 6 }}>
+                        <span>{key.name}</span>
+                        <KeyStatus status={key.status} checkedAt={key.checked_at} httpStatus={key.http_status} errorCode={key.error_code} />
+                        {key.checked_at && <span className="muted small">checked {formatDate(key.checked_at)}</span>}
+                        {(key.http_status || key.error_code) && key.status !== 'ok' && (
+                          <span className="mono small">
+                            {[key.http_status ? `HTTP ${key.http_status}` : '', key.error_code ?? ''].filter(Boolean).join(' ')}
+                          </span>
+                        )}
+                        {!key.status && key.configured !== null && <span className="muted small">{key.configured ? 'set' : 'not set'}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : (
               <span className="row" style={{ gap: 6 }}>
                 <KeyStatus
                   status={i.api_key_status}
@@ -120,6 +154,7 @@ export default async function InstallationPage({
                   <span className="muted small">{i.api_key_configured ? 'set' : 'not set'}</span>
                 )}
               </span>
+              )}
             </dd>
             <dt>Last report</dt>
             <dd>

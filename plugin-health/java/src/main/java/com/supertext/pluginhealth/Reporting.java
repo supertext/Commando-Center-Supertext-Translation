@@ -6,8 +6,23 @@ import java.util.Locale;
 /** Defaults and the on/off switch for version reports (plugin-health/spec/reporter.json). */
 public final class Reporting {
 
-    /** The live Supertext Plugin Health dashboard. */
-    public static final String DEFAULT_REPORT_URL = "https://commandocenter-production.up.railway.app/api/v1/report";
+    /**
+     * The live Supertext Plugin Health dashboard, from the classpath resource {@code config.json} in this
+     * package (a copy of plugin-health/config.json). {@code SUPERTEXT_REPORT_URL} overrides it; empty if
+     * the resource is missing.
+     */
+    public static final String DEFAULT_REPORT_URL = loadDefaultReportUrl();
+
+    private static String loadDefaultReportUrl() {
+        try (java.io.InputStream in = Reporting.class.getResourceAsStream("config.json")) {
+            if (in == null) return "";
+            String text = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            String url = Json.stringField(text, "reportUrl");
+            return url == null ? "" : url;
+        } catch (Exception e) {
+            return "";
+        }
+    }
 
     /** Timeout of a report. */
     public static final Duration REPORT_TIMEOUT = Duration.ofSeconds(3);

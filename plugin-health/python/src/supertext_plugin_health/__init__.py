@@ -8,7 +8,9 @@ from .key_check import CallableKeyChecker, KeyCheck, KeyChecker, iso_seconds, pa
 from .reporter import (
     DEFAULT_REPORT_URL,
     FAILURE_BACKOFF,
+    MAX_API_KEYS,
     REPORT_TIMEOUT,
+    ApiKeys,
     InstallationReporter,
     NameVersion,
     PingResponse,
@@ -28,8 +30,10 @@ __version__ = PLUGIN_HEALTH_VERSION
 __all__ = [
     "DEFAULT_REPORT_URL",
     "FAILURE_BACKOFF",
+    "MAX_API_KEYS",
     "PLUGIN_HEALTH_VERSION",
     "REPORT_TIMEOUT",
+    "ApiKeys",
     "CallableKeyChecker",
     "HttpRequest",
     "HttpResponse",

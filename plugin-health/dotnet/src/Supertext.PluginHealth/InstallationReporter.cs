@@ -10,7 +10,11 @@ namespace Supertext.PluginHealth;
 /// <param name="Check">The latest key check (show it on the settings or status page).</param>
 /// <param name="Event">The event that was reported (or tried), one of <see cref="ReportEvents"/>; null when nothing was due.</param>
 /// <param name="Sent">Whether the center accepted the report.</param>
-public sealed record ReporterResult(ReporterState State, KeyCheck? Check, string? Event, bool Sent);
+public sealed record ReporterResult(ReporterState State, KeyCheck? Check, string? Event, bool Sent)
+{
+    /// <summary>Several keys: the latest check per name; null with one key (then <see cref="Check"/> is set).</summary>
+    public IReadOnlyList<NamedKeyCheck>? Checks { get; init; }
+}
 
 /// <summary>Options for <see cref="InstallationReporter"/>.</summary>
 public sealed class ReporterOptions
@@ -84,37 +88,135 @@ public sealed class InstallationReporter
     /// <summary><c>&lt;plugin&gt;|&lt;system&gt;|&lt;runtime&gt;</c> versions.</summary>
     public string Versions => string.Join('|', options.Plugin.Version ?? string.Empty, options.System.Version ?? string.Empty, runtime.Version ?? string.Empty);
 
+    /// <summary>At most this many named keys are checked and reported; the rest are ignored.</summary>
+    public const int MaxApiKeys = 20;
+
     /// <summary>After the plugin's settings were saved: checks the key, reports <c>installed</c> or <c>settings_saved</c>.</summary>
-    public async Task<ReporterResult> AfterSettingsSavedAsync(ReporterState? state, string? apiKey, CancellationToken cancellationToken = default)
+    public Task<ReporterResult> AfterSettingsSavedAsync(ReporterState? state, string? apiKey, CancellationToken cancellationToken = default) =>
+        AfterSettingsSavedAsync(state, new Keys(apiKey, null), cancellationToken);
+
+    /// <summary>The same for several keys, by name in the order the settings show them (e.g. "AI translation").</summary>
+    public Task<ReporterResult> AfterSettingsSavedAsync(ReporterState? state, IEnumerable<KeyValuePair<string, string>> apiKeys, CancellationToken cancellationToken = default) =>
+        AfterSettingsSavedAsync(state, new Keys(null, Named(apiKeys)), cancellationToken);
+
+    /// <summary>On back-end requests that run the plugin's code: checks a changed key, reports what changed.</summary>
+    public Task<ReporterResult> OnRequestAsync(ReporterState? state, string? apiKey, CancellationToken cancellationToken = default) =>
+        OnRequestAsync(state, new Keys(apiKey, null), cancellationToken);
+
+    /// <summary>The same for several keys, by name.</summary>
+    public Task<ReporterResult> OnRequestAsync(ReporterState? state, IEnumerable<KeyValuePair<string, string>> apiKeys, CancellationToken cancellationToken = default) =>
+        OnRequestAsync(state, new Keys(null, Named(apiKeys)), cancellationToken);
+
+    /// <summary>A translation was rejected with 401/403: the key is invalid (the checker is not called).</summary>
+    public Task<ReporterResult> AuthenticationFailedAsync(ReporterState? state, string? apiKey, int httpStatus = 401, CancellationToken cancellationToken = default) =>
+        AuthenticationFailedAsync(state, new Keys(apiKey, null), httpStatus, null, cancellationToken);
+
+    /// <summary>The same for several keys: only <paramref name="keyName"/> becomes invalid (null: all).</summary>
+    public Task<ReporterResult> AuthenticationFailedAsync(ReporterState? state, IEnumerable<KeyValuePair<string, string>> apiKeys, int httpStatus = 401, string? keyName = null, CancellationToken cancellationToken = default) =>
+        AuthenticationFailedAsync(state, new Keys(null, Named(apiKeys)), httpStatus, keyName, cancellationToken);
+
+    /// <summary>The "Test connection" button: checks the key, reports a change.</summary>
+    public Task<ReporterResult> TestConnectionAsync(ReporterState? state, string? apiKey, CancellationToken cancellationToken = default) =>
+        TestConnectionAsync(state, new Keys(apiKey, null), cancellationToken);
+
+    /// <summary>The same for several keys, by name.</summary>
+    public Task<ReporterResult> TestConnectionAsync(ReporterState? state, IEnumerable<KeyValuePair<string, string>> apiKeys, CancellationToken cancellationToken = default) =>
+        TestConnectionAsync(state, new Keys(null, Named(apiKeys)), cancellationToken);
+
+    private sealed record Keys(string? Single, List<KeyValuePair<string, string>>? Many);
+
+    private async Task<ReporterResult> AfterSettingsSavedAsync(ReporterState? state, Keys keys, CancellationToken cancellationToken)
     {
-        var current = (state ?? ReporterState.Empty) with { KeyCheck = await CheckAsync(apiKey, cancellationToken).ConfigureAwait(false) };
+        var current = await WithChecksAsync(state ?? ReporterState.Empty, keys, true, cancellationToken).ConfigureAwait(false);
         return await ReportIfDueAsync(current, current.ReportedVersions is null ? ReportEvents.Installed : ReportEvents.SettingsSaved, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>On back-end requests that run the plugin's code: checks a changed key, reports what changed.</summary>
-    public async Task<ReporterResult> OnRequestAsync(ReporterState? state, string? apiKey, CancellationToken cancellationToken = default)
+    private async Task<ReporterResult> OnRequestAsync(ReporterState? state, Keys keys, CancellationToken cancellationToken)
     {
-        var current = state ?? ReporterState.Empty;
-        if (current.KeyCheck is null || current.KeyCheck.Fingerprint != FingerprintOf(apiKey))
+        var current = await WithChecksAsync(state ?? ReporterState.Empty, keys, false, cancellationToken).ConfigureAwait(false);
+        return await ReportIfDueAsync(current, DueEvent(current), cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<ReporterResult> AuthenticationFailedAsync(ReporterState? state, Keys keys, int httpStatus, string? keyName, CancellationToken cancellationToken)
+    {
+        var baseState = state ?? ReporterState.Empty;
+        KeyCheck Invalid(string? key) => new(KeyCheckStatus.Invalid, Reporting.IsoSeconds(clock.GetUtcNow()), httpStatus, null, FingerprintOf(key));
+        ReporterState current;
+        if (keys.Many is null)
         {
-            current = current with { KeyCheck = await CheckAsync(apiKey, cancellationToken).ConfigureAwait(false) };
+            current = baseState with
+            {
+                KeyCheck = Invalid(keys.Single),
+                KeyChecks = null,
+                ReportedKeyStatuses = null,
+                ReportedKeyStatus = baseState.KeyChecks is not null ? null : baseState.ReportedKeyStatus,
+            };
+        }
+        else
+        {
+            current = await WithChecksAsync(baseState, keys, false, cancellationToken).ConfigureAwait(false);
+            var wanted = keyName?.Trim();
+            var checks = current.KeyChecks!
+                .Select(c => wanted is null || c.Name == wanted ? c with { Check = Invalid(keys.Many.First(k => k.Key == c.Name).Value) } : c)
+                .ToList();
+            current = current with { KeyChecks = checks };
         }
         return await ReportIfDueAsync(current, DueEvent(current), cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>A translation was rejected with 401/403: the key is invalid (the checker is not called).</summary>
-    public Task<ReporterResult> AuthenticationFailedAsync(ReporterState? state, string? apiKey, int httpStatus = 401, CancellationToken cancellationToken = default)
+    private async Task<ReporterResult> TestConnectionAsync(ReporterState? state, Keys keys, CancellationToken cancellationToken)
     {
-        var keyCheck = new KeyCheck(KeyCheckStatus.Invalid, Reporting.IsoSeconds(clock.GetUtcNow()), httpStatus, null, FingerprintOf(apiKey));
-        var current = (state ?? ReporterState.Empty) with { KeyCheck = keyCheck };
-        return ReportIfDueAsync(current, DueEvent(current), cancellationToken);
+        var current = await WithChecksAsync(state ?? ReporterState.Empty, keys, true, cancellationToken).ConfigureAwait(false);
+        return await ReportIfDueAsync(current, DueEvent(current), cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>The "Test connection" button: checks the key, reports a change.</summary>
-    public async Task<ReporterResult> TestConnectionAsync(ReporterState? state, string? apiKey, CancellationToken cancellationToken = default)
+    /// <summary>The state with fresh checks: always (<paramref name="force"/>), else only for keys that are new or changed.</summary>
+    private async Task<ReporterState> WithChecksAsync(ReporterState state, Keys keys, bool force, CancellationToken cancellationToken)
     {
-        var current = (state ?? ReporterState.Empty) with { KeyCheck = await CheckAsync(apiKey, cancellationToken).ConfigureAwait(false) };
-        return await ReportIfDueAsync(current, DueEvent(current), cancellationToken).ConfigureAwait(false);
+        if (keys.Many is null)
+        {
+            if (!force && state.KeyChecks is null && state.KeyCheck is not null && state.KeyCheck.Fingerprint == FingerprintOf(keys.Single))
+            {
+                return state;
+            }
+            // Coming from several keys: report the single key even if its status is the one reported before.
+            return state with
+            {
+                KeyCheck = await CheckAsync(keys.Single, cancellationToken).ConfigureAwait(false),
+                KeyChecks = null,
+                ReportedKeyStatuses = null,
+                ReportedKeyStatus = state.KeyChecks is not null ? null : state.ReportedKeyStatus,
+            };
+        }
+        var checks = new List<NamedKeyCheck>();
+        foreach (var (name, key) in keys.Many)
+        {
+            var old = state.KeyChecks?.FirstOrDefault(c => c.Name == name)?.Check;
+            checks.Add(new NamedKeyCheck(name, !force && old is not null && old.Fingerprint == FingerprintOf(key) ? old : await CheckAsync(key, cancellationToken).ConfigureAwait(false)));
+        }
+        return state with { KeyCheck = null, KeyChecks = checks };
+    }
+
+    /// <summary>The named keys (at most <see cref="MaxApiKeys"/>, names trimmed, blank and repeated names dropped).</summary>
+    private static List<KeyValuePair<string, string>> Named(IEnumerable<KeyValuePair<string, string>> apiKeys)
+    {
+        ArgumentNullException.ThrowIfNull(apiKeys);
+        var output = new List<KeyValuePair<string, string>>();
+        foreach (var (raw, key) in apiKeys)
+        {
+            var name = (raw ?? string.Empty).Trim();
+            name = name.Length > 60 ? name[..60] : name;
+            if (name.Length == 0 || output.Exists(k => k.Key == name))
+            {
+                continue;
+            }
+            output.Add(new KeyValuePair<string, string>(name, key ?? string.Empty));
+            if (output.Count >= MaxApiKeys)
+            {
+                break;
+            }
+        }
+        return output;
     }
 
     /// <summary>Sends a <c>check</c> report now (commands, tests), even after a recent failure.</summary>
@@ -138,19 +240,24 @@ public sealed class InstallationReporter
         {
             body["sdk_version"] = options.SdkVersion;
         }
-        if (state.KeyCheck is { } check)
+        if (state.KeyChecks is { } checks)
+        {
+            var keys = new JsonArray();
+            foreach (var named in checks)
+            {
+                keys.Add(new JsonObject
+                {
+                    ["name"] = named.Name,
+                    ["configured"] = !string.IsNullOrEmpty(named.Check.Fingerprint),
+                    ["check"] = CheckJson(named.Check),
+                });
+            }
+            body["api_keys"] = keys;
+        }
+        else if (state.KeyCheck is { } check)
         {
             body["api_key_configured"] = !string.IsNullOrEmpty(check.Fingerprint);
-            var c = new JsonObject { ["status"] = check.Status, ["checked_at"] = check.CheckedAt };
-            if (check.HttpStatus is { } httpStatus)
-            {
-                c["http_status"] = httpStatus;
-            }
-            if (check.ErrorCode is { } errorCode)
-            {
-                c["error_code"] = errorCode;
-            }
-            body["api_key_check"] = c;
+            body["api_key_check"] = CheckJson(check);
         }
         if (!string.IsNullOrEmpty(options.CallbackUrl))
         {
@@ -169,11 +276,32 @@ public sealed class InstallationReporter
         {
             return ReportEvents.Upgraded;
         }
+        if (state.KeyChecks is { } checks)
+        {
+            var reported = state.ReportedKeyStatuses ?? new Dictionary<string, string>();
+            return reported.Count != checks.Count || checks.Any(c => !reported.TryGetValue(c.Name, out var s) || s != c.Check.Status)
+                ? ReportEvents.ApiKeyCheck
+                : null;
+        }
         if (state.KeyCheck is not null && state.KeyCheck.Status != state.ReportedKeyStatus)
         {
             return ReportEvents.ApiKeyCheck;
         }
         return null;
+    }
+
+    private static JsonObject CheckJson(KeyCheck check)
+    {
+        var c = new JsonObject { ["status"] = check.Status, ["checked_at"] = check.CheckedAt };
+        if (check.HttpStatus is { } httpStatus)
+        {
+            c["http_status"] = httpStatus;
+        }
+        if (check.ErrorCode is { } errorCode)
+        {
+            c["error_code"] = errorCode;
+        }
+        return c;
     }
 
     private string FingerprintOf(string? apiKey)
@@ -213,13 +341,13 @@ public sealed class InstallationReporter
     {
         if (reportEvent is null || !options.Enabled)
         {
-            return Task.FromResult(new ReporterResult(state, state.KeyCheck, null, false));
+            return Task.FromResult(new ReporterResult(state, state.KeyCheck, null, false) { Checks = state.KeyChecks });
         }
         if (state.LastFailureAt is not null
             && DateTimeOffset.TryParse(state.LastFailureAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var failed)
             && clock.GetUtcNow() - failed < Reporting.FailureBackoff)
         {
-            return Task.FromResult(new ReporterResult(state, state.KeyCheck, null, false));
+            return Task.FromResult(new ReporterResult(state, state.KeyCheck, null, false) { Checks = state.KeyChecks });
         }
         return SendAsync(state, reportEvent, cancellationToken);
     }
@@ -228,7 +356,7 @@ public sealed class InstallationReporter
     {
         if (!options.Enabled)
         {
-            return new ReporterResult(state, state.KeyCheck, null, false);
+            return new ReporterResult(state, state.KeyCheck, null, false) { Checks = state.KeyChecks };
         }
         bool ok;
         try
@@ -252,9 +380,15 @@ public sealed class InstallationReporter
             ok = false; // Never fails the caller: the center is optional.
         }
         var next = ok
-            ? state with { ReportedVersions = Versions, ReportedKeyStatus = state.KeyCheck?.Status ?? state.ReportedKeyStatus, LastFailureAt = null }
+            ? state with
+            {
+                ReportedVersions = Versions,
+                ReportedKeyStatus = state.KeyCheck?.Status ?? state.ReportedKeyStatus,
+                ReportedKeyStatuses = state.KeyChecks is { } checks ? checks.ToDictionary(c => c.Name, c => c.Check.Status) : state.ReportedKeyStatuses,
+                LastFailureAt = null,
+            }
             : state with { LastFailureAt = Reporting.IsoSeconds(clock.GetUtcNow()) };
-        return new ReporterResult(next, next.KeyCheck, reportEvent, ok);
+        return new ReporterResult(next, next.KeyCheck, reportEvent, ok) { Checks = next.KeyChecks };
     }
 
     private static JsonObject NameVersionJson(NameVersion value) =>

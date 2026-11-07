@@ -4,6 +4,11 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 ## [Unreleased]
 
+### Added
+
+- **Several API keys per installation:** reports may carry `api_keys`, a list of named keys (0 to 20) each with its own check, for plugins like WordPress with several keys. The installation page lists every key and the history says which one changed; lists and the *API key problem* filter use the worst of them. Reports with the single-key fields work as before. New column `api_keys` (migration 004).
+- Plugin Health library 0.2.0: the default report address `https://pluginhealth.supertext.com/api/v1/report` comes from `plugin-health/config.json`, and plugins can pass several named keys (see `plugin-health/CHANGELOG.md`).
+
 ### Changed
 
 - Browser tab title: *Plugin Health | Supertext*.

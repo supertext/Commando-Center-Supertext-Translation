@@ -156,10 +156,11 @@ jobs:
 
   versions:
     # All five languages carry one version; plugin-health/CHANGELOG.md names it.
-    name: One version
+    name: One version, one config
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: plugin-health/scripts/check-versions.sh
+      - run: plugin-health/scripts/sync-config.sh --check

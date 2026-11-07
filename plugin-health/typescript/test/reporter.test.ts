@@ -25,16 +25,18 @@ const pkg = read('../package.json')
 
 type Answer = { status?: number; transportError?: boolean } | null | undefined
 
-/** Fake key checker (returns the step's keyCheck) and fake center; records the calls in order. */
-function fakes(stepCheck: KeyCheck | undefined, report: Answer) {
+/** Fake key checker (returns the step's keyCheck, or its keyChecks one per call) and fake center; records the calls in order. */
+function fakes(stepCheck: KeyCheck | KeyCheck[] | undefined, report: Answer) {
+  const queue = Array.isArray(stepCheck) ? [...stepCheck] : null
   const calls: string[] = []
   const bodies: Record<string, unknown>[] = []
   const headers: Record<string, string>[] = []
   const keyChecker: KeyChecker = {
     check: async () => {
       calls.push('keyCheck')
-      if (!stepCheck) throw new Error('unexpected key check')
-      return stepCheck
+      const next = queue ? queue.shift() : stepCheck
+      if (!next || Array.isArray(next)) throw new Error('unexpected key check')
+      return next
     },
     fingerprint: (apiKey) => {
       const fp = s.fingerprints[apiKey]
@@ -78,8 +80,10 @@ describe('spec/reporter.json', () => {
     it(scenario.name, async () => {
       const config = { ...s.config, ...scenario.config }
       let state: ReporterState = reporterState(JSON.parse(JSON.stringify(scenario.state)))
-      for (const step of scenario.steps) {
-        const f = fakes(step.keyCheck, step.report)
+      for (const raw of scenario.steps) {
+        const step = raw as typeof raw & { apiKeys?: Record<string, string>; keyChecks?: KeyCheck[]; keyName?: string; checks?: unknown }
+        const keys = step.apiKeys ?? step.apiKey!
+        const f = fakes(step.keyChecks ?? step.keyCheck, step.report)
         const reporter = new InstallationReporter({
           ...config,
           keyChecker: f.keyChecker,
@@ -89,18 +93,19 @@ describe('spec/reporter.json', () => {
         })
         const r =
           step.action === 'afterSettingsSaved'
-            ? await reporter.afterSettingsSaved(state, step.apiKey)
+            ? await reporter.afterSettingsSaved(state, keys)
             : step.action === 'onRequest'
-              ? await reporter.onRequest(state, step.apiKey)
+              ? await reporter.onRequest(state, keys)
               : step.action === 'authenticationFailed'
-                ? await reporter.authenticationFailed(state, step.apiKey, step.httpStatus)
+                ? await reporter.authenticationFailed(state, keys, step.httpStatus, step.keyName)
                 : step.action === 'testConnection'
-                  ? await reporter.testConnection(state, step.apiKey)
+                  ? await reporter.testConnection(state, keys)
                   : await reporter.reportCheck(state)
         expect(f.calls, step.action).toEqual(step.expect.calls)
         expect(r.event).toBe(step.expect.event)
         expect(r.sent).toBe(step.expect.sent)
         expect(r.check).toEqual(step.expect.check)
+        expect(r.checks).toEqual((step.expect as { checks?: unknown }).checks)
         expect(r.state).toEqual(step.expect.state)
         if (step.expect.reportBody) expect(f.bodies[0]).toEqual(step.expect.reportBody)
         for (const h of f.headers) expect(h['User-Agent']).toBe(`supertext-plugin-health/${PLUGIN_HEALTH_VERSION} (typescript) ${config.plugin.name}/${config.plugin.version}`)
@@ -166,17 +171,42 @@ describe('reporter', () => {
   })
 
   it('treats a broken stored state as empty', () => {
-    expect(reporterState('not json')).toEqual({ reportedVersions: null, reportedKeyStatus: null, lastFailureAt: null, keyCheck: null })
+    expect(reporterState('not json')).toEqual({ reportedVersions: null, reportedKeyStatus: null, lastFailureAt: null, keyCheck: null, keyChecks: null, reportedKeyStatuses: null })
     expect(reporterState(null).keyCheck).toBeNull()
   })
 
   it('reads a state stored by the Supertext SDK 0.1–0.2 reporter', () => {
     const old = '{"reportedVersions":"0.2.0|12.0.0|22.11.0","reportedKeyStatus":"ok","lastFailureAt":null,"keyCheck":{"status":"ok","checkedAt":"2026-10-13T08:00:00Z","httpStatus":200,"errorCode":null,"fingerprint":"abc"}}'
-    expect(reporterState(old)).toEqual({ reportedVersions: '0.2.0|12.0.0|22.11.0', reportedKeyStatus: 'ok', lastFailureAt: null, keyCheck: okCheck })
+    expect(reporterState(old)).toEqual({ reportedVersions: '0.2.0|12.0.0|22.11.0', reportedKeyStatus: 'ok', lastFailureAt: null, keyCheck: okCheck, keyChecks: null, reportedKeyStatuses: null })
   })
 
   it('detects the runtime', () => {
     const reporter = new InstallationReporter({ ...s.config, runtime: undefined, keyChecker: fakes(undefined, null).keyChecker })
     expect(reporter.buildReport('check', reporterState(null)).runtime).toEqual({ name: 'Node.js', version: process.versions.node })
+  })
+  it('checks at most 20 named keys and drops blank and repeated names', async () => {
+    const f = fakes(Array.from({ length: 30 }, () => okCheck), { status: 202 })
+    const reporter = new InstallationReporter({ ...s.config, keyChecker: { ...f.keyChecker, fingerprint: () => 'fp' }, reportUrl: 'https://center.test/api/v1/report', fetch: f.fetch })
+    const keys: Record<string, string> = { ' ': 'x', 'A ': 'k1' }
+    for (let n = 0; n < 25; n++) keys[`Key ${n}`] = 'k1'
+    keys['A'] = 'k2'
+    const r = await reporter.afterSettingsSaved(null, keys)
+    expect(Object.keys(r.checks!)).toHaveLength(20)
+    expect(Object.keys(r.checks!)[0]).toBe('A')
+    expect((f.bodies[0]!.api_keys as unknown[]).length).toBe(20)
+  })
+
+  it('switches between one key and several', async () => {
+    const f = fakes([okCheck, okCheck, okCheck], { status: 202 })
+    const reporter = new InstallationReporter({ ...s.config, keyChecker: { ...f.keyChecker, fingerprint: () => 'fp' }, reportUrl: 'https://center.test/api/v1/report', fetch: f.fetch })
+    const one = await reporter.afterSettingsSaved(null, 'k1')
+    expect(one.state.keyChecks).toBeNull()
+    const many = await reporter.onRequest(one.state, { 'AI translation': 'k1' })
+    expect(many.event).toBe('api_key_check')
+    expect(many.state.keyCheck).toBeNull()
+    const back = await reporter.onRequest(many.state, 'k1')
+    expect(back.state.keyChecks).toBeNull()
+    expect(back.state.reportedKeyStatuses).toBeNull()
+    expect(f.bodies.map((b) => ('api_keys' in b ? 'many' : 'one'))).toEqual(['one', 'many', 'one'])
   })
 })

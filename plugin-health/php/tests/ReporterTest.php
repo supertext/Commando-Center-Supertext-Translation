@@ -131,7 +131,7 @@ final class ReporterTest extends TestCase
     public function testDefaults(): void
     {
         $defaults = self::map(self::spec()['defaults']);
-        self::assertSame($defaults['reportUrl'], InstallationReporter::DEFAULT_REPORT_URL);
+        self::assertSame($defaults['reportUrl'], InstallationReporter::defaultReportUrl());
         self::assertSame($defaults['reportTimeoutSeconds'], InstallationReporter::REPORT_TIMEOUT);
         self::assertSame($defaults['failureBackoffSeconds'], InstallationReporter::FAILURE_BACKOFF);
     }
@@ -219,9 +219,10 @@ final class ReporterTest extends TestCase
         foreach (self::maps($scenario['steps']) as $i => $step) {
             $action = self::str($step['action']);
             $label = '#' . $i . ' ' . $action;
-            $apiKey = self::str($step['apiKey']);
+            /** @var string|array<string, string> $apiKey */
+            $apiKey = isset($step['apiKeys']) ? self::map($step['apiKeys']) : self::str($step['apiKey']);
             $fakes = new Fakes(
-                isset($step['keyCheck']) ? self::map($step['keyCheck']) : null,
+                isset($step['keyChecks']) ? (array) $step['keyChecks'] : (isset($step['keyCheck']) ? self::map($step['keyCheck']) : null),
                 isset($step['report']) ? self::map($step['report']) : null,
                 self::fingerprints(),
             );
@@ -229,7 +230,7 @@ final class ReporterTest extends TestCase
             $result = match ($action) {
                 'afterSettingsSaved' => $reporter->afterSettingsSaved($state, $apiKey),
                 'onRequest' => $reporter->onRequest($state, $apiKey),
-                'authenticationFailed' => $reporter->authenticationFailed($state, $apiKey, \is_int($step['httpStatus']) ? $step['httpStatus'] : 401),
+                'authenticationFailed' => $reporter->authenticationFailed($state, $apiKey, \is_int($step['httpStatus']) ? $step['httpStatus'] : 401, isset($step['keyName']) ? self::str($step['keyName']) : null),
                 'testConnection' => $reporter->testConnection($state, $apiKey),
                 'reportCheck' => $reporter->reportCheck($state),
                 default => self::fail('unknown action ' . $action),
@@ -240,6 +241,7 @@ final class ReporterTest extends TestCase
             self::assertSame($expect['event'], $result->event, $label);
             self::assertSame($expect['sent'], $result->sent, $label);
             self::assertSame($expect['check'], $result->check?->toArray(), $label);
+            self::assertSame($expect['checks'], $result->checks === null ? null : array_map(static fn ($c) => $c->toArray(), $result->checks), $label);
             self::assertSame($expect['state'], $result->state->toArray(), $label);
             foreach ($fakes->reports as $report) {
                 self::assertSame(self::REPORT_URL, $report->url, $label);
@@ -436,7 +438,7 @@ final class ReporterTest extends TestCase
         self::assertSame('invalid', $state->reportedKeyStatus);
         self::assertSame('2026-10-13T08:00:00Z', $state->lastFailureAt);
         self::assertEquals(new KeyCheck('invalid', '2026-10-13T07:59:58Z', 401, 'INVALID_API_KEY', '6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0'), $state->keyCheck);
-        self::assertSame($old, $state->toJson());
+        self::assertSame(substr($old, 0, -1) . ',"keyChecks":null,"reportedKeyStatuses":null}', $state->toJson());
         self::assertEquals($state, ReporterState::from($old));
         self::assertEquals($state, ReporterState::from(json_decode($old)));
         self::assertEquals($state, ReporterState::fromArray(json_decode($old, true)));
@@ -445,7 +447,7 @@ final class ReporterTest extends TestCase
 
     public function testABrokenStoredStateIsEmpty(): void
     {
-        $empty = ['reportedVersions' => null, 'reportedKeyStatus' => null, 'lastFailureAt' => null, 'keyCheck' => null];
+        $empty = ['reportedVersions' => null, 'reportedKeyStatus' => null, 'lastFailureAt' => null, 'keyCheck' => null, 'keyChecks' => null, 'reportedKeyStatuses' => null];
         self::assertSame($empty, ReporterState::fromJson('not json')->toArray());
         self::assertSame($empty, ReporterState::fromJson('')->toArray());
         self::assertSame($empty, ReporterState::fromJson(null)->toArray());
@@ -485,7 +487,7 @@ final class ReporterTest extends TestCase
     public function testReportUrlFromTheEnvironment(): void
     {
         $args = ['enabled' => true, 'siteUrl' => 'https://x.test', 'pluginName' => 'P', 'pluginVersion' => '1', 'systemName' => 'S', 'keyChecker' => new Fakes(null, null, [])];
-        self::assertSame(InstallationReporter::DEFAULT_REPORT_URL, (new InstallationReporter(...$args))->reportUrl);
+        self::assertSame(InstallationReporter::defaultReportUrl(), (new InstallationReporter(...$args))->reportUrl);
         putenv('SUPERTEXT_REPORT_URL=https://env.test/report');
         try {
             self::assertSame('https://env.test/report', (new InstallationReporter(...$args))->reportUrl);
@@ -493,5 +495,23 @@ final class ReporterTest extends TestCase
         } finally {
             putenv('SUPERTEXT_REPORT_URL');
         }
+    }
+
+    public function testAtMostTwentyNamedKeys(): void
+    {
+        $checks = array_fill(0, 30, ['status' => 'ok', 'checkedAt' => '2026-10-13T08:00:00Z', 'httpStatus' => 200, 'errorCode' => null, 'fingerprint' => 'fp']);
+        $fakes = new Fakes($checks, ['status' => 202], []);
+        $config = self::config();
+        $reporter = self::reporter($config, new CallableKeyChecker(static fn (): array => $checks[0], static fn (): string => 'fp'), $fakes, 1760342400.0);
+        $keys = [' ' => 'x', 'A ' => 'k1'];
+        for ($n = 0; $n < 25; ++$n) {
+            $keys['Key ' . $n] = 'k1';
+        }
+        $result = $reporter->afterSettingsSaved(null, $keys);
+        self::assertCount(20, $result->checks ?? []);
+        self::assertSame('A', array_key_first($result->checks ?? []));
+        $body = json_decode((string) $fakes->reports[0]->body, true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($body);
+        self::assertCount(20, $body['api_keys']);
     }
 }

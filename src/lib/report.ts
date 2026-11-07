@@ -17,6 +17,18 @@ export interface Report {
   apiKeyCheck: ApiKeyCheck | null;
   /** The plugin's public ping endpoint as reported (checked against the site later), or null. */
   callbackUrl: string | null;
+  /**
+   * The plugin's named API keys (field api_keys), or null when the report uses the single-key fields.
+   * When set, apiKeyConfigured and apiKeyCheck are its summary: any key configured, the worst check.
+   */
+  apiKeys: NamedApiKey[] | null;
+}
+
+/** One of several API keys a plugin uses (e.g. "AI translation", "Professional orders"). */
+export interface NamedApiKey {
+  name: string;
+  configured: boolean | null;
+  check: ApiKeyCheck | null;
 }
 
 export interface ApiKeyCheck {
@@ -31,6 +43,31 @@ export const KEY_STATUSES = ['ok', 'invalid', 'missing', 'unreachable', 'error']
 
 export const KNOWN_EVENTS = ['installed', 'settings_saved', 'upgraded', 'api_key_check', 'check'] as const;
 export const MAX_BODY_BYTES = 8 * 1024;
+/** At most this many named keys per report; more are ignored. */
+export const MAX_API_KEYS = 20;
+
+/** Worst first: the summary of several keys is the first status in this order that any key has. */
+const STATUS_ORDER = ['invalid', 'error', 'unreachable', 'missing'];
+
+function rank(status: string): number {
+  const i = STATUS_ORDER.indexOf(status);
+  return i >= 0 ? i : status === 'ok' ? STATUS_ORDER.length + 1 : STATUS_ORDER.length;
+}
+
+/** The check that stands for several keys: the worst status (ties: the latest check). */
+export function worstCheck(keys: { check: ApiKeyCheck | null }[]): ApiKeyCheck | null {
+  let worst: ApiKeyCheck | null = null;
+  for (const { check } of keys) {
+    if (!check) continue;
+    if (
+      !worst ||
+      rank(check.status) < rank(worst.status) ||
+      (rank(check.status) === rank(worst.status) && (check.checkedAt?.getTime() ?? 0) > (worst.checkedAt?.getTime() ?? 0))
+    )
+      worst = check;
+  }
+  return worst;
+}
 
 export type ParseResult = { ok: true; report: Report } | { ok: false; error: string };
 
@@ -73,6 +110,28 @@ export function parseApiKeyCheck(value: unknown, now = Date.now()): ApiKeyCheck 
   return { status, checkedAt, httpStatus, errorCode: code };
 }
 
+/**
+ * Optional api_keys: [{name, configured, check}], 0 to MAX_API_KEYS entries. Like the key check it is
+ * extra information: malformed entries, duplicate names and entries past the limit are dropped; a value
+ * that isn't a list counts as absent (null).
+ */
+export function parseApiKeys(value: unknown, now = Date.now()): NamedApiKey[] | null {
+  if (!Array.isArray(value)) return null;
+  const keys: NamedApiKey[] = [];
+  for (const entry of value) {
+    if (keys.length >= MAX_API_KEYS) break;
+    const e = obj(entry);
+    const name = e && text(e.name, 60);
+    if (!e || !name || keys.some((k) => k.name === name)) continue;
+    keys.push({
+      name,
+      configured: typeof e.configured === 'boolean' ? e.configured : null,
+      check: e.check === undefined || e.check === null ? null : parseApiKeyCheck(e.check, now),
+    });
+  }
+  return keys;
+}
+
 /** Optional {"url": "..."}; anything malformed is dropped like a malformed key check. */
 export function parseCallback(value: unknown): string | null {
   const c = obj(value);
@@ -101,6 +160,7 @@ export function parseReport(body: unknown, now = Date.now()): ParseResult {
   const systemName = system && text(system.name, 100);
   if (!systemName) return { ok: false, error: 'Missing or invalid "system.name".' };
   const runtime = obj(b.runtime);
+  const apiKeys = parseApiKeys(b.api_keys, now);
 
   return {
     ok: true,
@@ -115,9 +175,14 @@ export function parseReport(body: unknown, now = Date.now()): ParseResult {
       runtime: runtime ? text(runtime.name, 50) : null,
       runtimeVersion: runtime ? text(runtime.version, 50) : null,
       sdkVersion: text(b.sdk_version, 50),
-      apiKeyConfigured: typeof b.api_key_configured === 'boolean' ? b.api_key_configured : null,
-      apiKeyCheck: parseApiKeyCheck(b.api_key_check, now),
+      apiKeyConfigured: apiKeys
+        ? apiKeys.length > 0 && apiKeys.some((k) => k.configured === true)
+        : typeof b.api_key_configured === 'boolean'
+          ? b.api_key_configured
+          : null,
+      apiKeyCheck: apiKeys ? worstCheck(apiKeys) : parseApiKeyCheck(b.api_key_check, now),
       callbackUrl: parseCallback(b.callback),
+      apiKeys,
     },
   };
 }

@@ -36,8 +36,8 @@ The dashboard was called *Commando Center* until November 2026. Technical names 
 
 ### Data model
 
-- `installations`: one row per **normalized site URL + plugin** with the latest reported state (including the newest API key check), the client it is mapped to, notes, first and last report.
-- `reports`: every report received (event, versions, the key check if the report had one, `changed` = differs from the previous state). The history on the installation page reads from here.
+- `installations`: one row per **normalized site URL + plugin** with the latest reported state (including the newest API key check; with named keys `api_keys` holds each key with its newest check and the `api_key_*` columns their summary), the client it is mapped to, notes, first and last report.
+- `reports`: every report received (event, versions, the key check if the report had one, the named keys as reported, `changed` = differs from the previous state). The history on the installation page reads from here.
 - `callback_pings`: every callback ping (time, trigger `report` or `manual`, URL, result, HTTP status, latency, detail); the installation keeps the latest result.
 - `clients`: Supertext customers, created by hand. Names are unique regardless of case. Deleting a client unmaps its installations; deleting an installation deletes its history.
 
@@ -85,8 +85,19 @@ Content-Type: application/json
 | `api_key_check.checked_at` | no | When the check ran, ISO 8601 with time zone. Missing, more than 5 minutes in the future or before 2020: the dashboard uses the time it received the report. |
 | `api_key_check.http_status` | no | The HTTP status Supertext answered the check with |
 | `api_key_check.error_code` | no | Supertext's error code from the response body, if any (at most 100 characters) |
+| `api_keys` | no | For plugins with several API keys (WordPress: AI translation, professional orders, …): a list of 0 to 20 entries `{"name": "AI translation", "configured": true, "check": {…as api_key_check…}}`. `name` (1–60 characters, unique in the report) is what the plugin's settings call the key, never the key itself; `check` may be missing or `null` (not checked yet). When present, the dashboard stores every key and ignores `api_key_configured` and `api_key_check`; it keeps their summary (any key configured, the worst check: `invalid` before `error`, `unreachable`, `missing`, other values, `ok`), so lists and filters work the same. Plugins with one key may keep the two single-key fields. |
 
-Unknown fields are accepted and ignored, so later versions can add fields without breaking older centers. The body may be at most 8 KB; strings must not contain control characters. A malformed `api_key_check` is dropped and the rest of the report is stored, so a plugin bug there never loses the version information.
+Unknown fields are accepted and ignored, so later versions can add fields without breaking older centers. The body may be at most 8 KB; strings must not contain control characters. A malformed `api_key_check` is dropped and the rest of the report is stored, so a plugin bug there never loses the version information; the same goes for malformed `api_keys` entries, duplicate names and entries past 20.
+
+Example with several keys (instead of `api_key_configured` and `api_key_check`):
+
+```json
+"api_keys": [
+  { "name": "AI translation", "configured": true, "check": { "status": "ok", "checked_at": "2026-10-13T09:15:00+02:00", "http_status": 200 } },
+  { "name": "Professional orders", "configured": true, "check": { "status": "invalid", "checked_at": "2026-10-13T09:15:01+02:00", "http_status": 401 } },
+  { "name": "Review", "configured": false, "check": { "status": "missing" } }
+]
+```
 
 The installation keeps the **newest** key check: a report without one (an `upgraded` report, an older plugin version) or with an older `checked_at` leaves the stored result alone. A changed key status counts as a change in the history (*API key rejected → ok*).
 
@@ -123,6 +134,8 @@ Every plugin checks the API key automatically, so administrators learn about a w
 2. **Key from the environment or a config file** (Directus, Strapi, Ghost, …, where no save happens): on back-end requests, when the key differs from the one last checked. Compare a fingerprint (SHA-256 of the key, kept locally, never sent anywhere). Report `api_key_check`.
 3. **A translation is rejected with 401 or 403:** set the status to `invalid` and report `api_key_check`, but only when the status changes (no report per failed translation).
 4. **Test connection** (where the plugin has the button): run the same check and update the stored result; report `api_key_check` when the status changed.
+
+**Several keys:** a plugin with more than one Supertext API key checks each one the same way and reports them by name in `api_keys` (Plugin Health ≥ 0.2: pass the keys by name). `api_key_check` is sent when any key's status changes; a rejected translation marks only the key it used.
 
 **How**
 
@@ -194,7 +207,8 @@ The *Translation proxy* tab shows which plugins send their translations through 
 
 - Behaviour is pinned by `plugin-health/spec/reporter.json` (the reporter's scenarios, the setting, the ping answers) plus this repo's `spec/`. A protocol change here updates the spec, all five languages, their tests and `plugin-health/CHANGELOG.md` in the same commit.
 - `test/unit/plugin-health.test.ts` replays the reporter scenarios with the TypeScript reference and runs every report body through the dashboard's own parser, so the client and the server can't drift apart.
-- CI: `.github/workflows/plugin-health.yml` (every language, plus a check that all five carry one version: `plugin-health/scripts/check-versions.sh`). Releases: a new `## X.Y.Z — YYYY-MM-DD` section in `plugin-health/CHANGELOG.md` → `.github/workflows/plugin-health-release.yml` tags `plugin-health-vX.Y.Z` (0.x as pre-releases), independent of the dashboard's own releases.
+- The default report URL is written only in `plugin-health/config.json` (`https://pluginhealth.supertext.com/api/v1/report`); each language reads the copy that ships with its sources (`scripts/sync-config.sh` writes the copies). `SUPERTEXT_REPORT_URL` overrides it. Plugins bundled before 0.2.0 report to `https://commandocenter-production.up.railway.app/api/v1/report`, so the Railway address must keep working.
+- CI: `.github/workflows/plugin-health.yml` (every language, plus checks that all five carry one version, `plugin-health/scripts/check-versions.sh`, and the same config, `plugin-health/scripts/sync-config.sh --check`). Releases: a new `## X.Y.Z — YYYY-MM-DD` section in `plugin-health/CHANGELOG.md` → `.github/workflows/plugin-health-release.yml` tags `plugin-health-vX.Y.Z` (0.x as pre-releases), independent of the dashboard's own releases.
 - Plugins bundle a copy with `scripts/vendor-plugin-health.sh <tag or commit>`; never edit a copy.
 
 ## Sign-in

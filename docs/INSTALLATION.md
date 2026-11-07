@@ -7,7 +7,7 @@ How to run the Supertext Plugin Health dashboard: requirements, deployment on Ra
 - A container host. The dashboard runs on [Railway](https://railway.com) in the Supertext project; any Docker host works.
 - PostgreSQL 14 or later. On Railway, the shared Postgres service is used; the dashboard creates its own database on it.
 - A client registration in Supertext's Person Service (the Supertext login), so staff sign in with their Supertext accounts. See *Sign-in with Supertext accounts* below.
-- A domain the plugins can reach over HTTPS. The plugins send reports to `https://<domain>/api/v1/report`, and that address ships in every plugin, so use a domain Supertext controls (for example `commando.supertext.com`), not the generated Railway domain.
+- A domain the plugins can reach over HTTPS. The plugins send reports to `https://<domain>/api/v1/report`, and that address ships in every plugin, so use a domain Supertext controls (`pluginhealth.supertext.com`, the default in Plugin Health 0.2), not the generated Railway domain. Plugins bundled with Plugin Health 0.1 report to `commandocenter-production.up.railway.app`: keep that Railway domain on the service as long as such plugins are installed.
 
 ## Deploy on Railway
 
@@ -35,7 +35,7 @@ All settings are environment variables (Railway service variables).
 | `COMMANDO_OIDC_ALLOWED_ROLES` | no | `Administrator` | Person Service roles that may sign in (comma-separated, case-insensitive). `Administrator` is the role of Supertext staff. Set it to an empty value to allow only the addresses below |
 | `COMMANDO_OIDC_ALLOWED_EMAILS` | no | – | Additional people by e-mail address or domain (`ada@supertext.com, @supertext.com`), for staff without the role |
 | `COMMANDO_OIDC_SCOPES` | no | `openid profile email custom.profile` | Scopes requested. `custom.profile` carries the `role` claim |
-| `COMMANDO_PUBLIC_URL` | no | from the request | The dashboard's public address (`https://commandocenter-production.up.railway.app`), used for the callback and sign-out addresses. Set it when the dashboard has a custom domain |
+| `COMMANDO_PUBLIC_URL` | no | from the request | The dashboard's public address (`https://pluginhealth.supertext.com`), used for the callback and sign-out addresses. Set it when the dashboard has a custom domain |
 | `GITHUB_TOKEN` | no | – | A GitHub token (no scopes needed for public repositories). Without it, the release lookup is limited to 60 GitHub API requests per hour, which is enough for normal use |
 | `GITHUB_OWNER` | no | `Supertext` | GitHub owner of the plugin repositories |
 | `COMMANDO_PROXY_URL` | no | – | Public base URL of the Supertext translation proxy, for the *Translation proxy* tab (e.g. `https://review-proxy.up.railway.app`) |
@@ -50,7 +50,7 @@ Keep the session secret and a client secret only in Railway's variables: never i
 
 Staff sign in with their Supertext account through Supertext's Person Service (OpenID Connect, the same login as Supertext's other admin tools). Only people with the role `Administrator` in the Person Service (or an address in `COMMANDO_OIDC_ALLOWED_EMAILS`) get in; everyone else sees *Your Supertext account isn't allowed to use Plugin Health*. A session lasts 12 hours. *Sign out* ends the session here and at the Person Service.
 
-1. **Register the client in the Person Service** (repository `Supertext.Person`, Azure DevOps): add this entry to `IdentityServer.Clients` in `Supertext.Person.Web/charts/appsettings/appsettings.Starprod.k8s.sn.json` (and in the other environments' files if the dashboard should sign in against them), with the dashboard's address (here the Railway domain; use the custom domain once it has one):
+1. **Register the client in the Person Service** (repository `Supertext.Person`, Azure DevOps): add this entry to `IdentityServer.Clients` in `Supertext.Person.Web/charts/appsettings/appsettings.Starprod.k8s.sn.json` (and in the other environments' files if the dashboard should sign in against them), with the dashboard's address:
 
    ```json
    {
@@ -61,8 +61,8 @@ Staff sign in with their Supertext account through Supertext's Person Service (O
      "RequireClientSecret": false,
      "RequirePkce": true,
      "AllowOfflineAccess": false,
-     "RedirectUris": [ "https://commandocenter-production.up.railway.app/auth/callback" ],
-     "PostLogoutRedirectUris": [ "https://commandocenter-production.up.railway.app/login" ],
+     "RedirectUris": [ "https://pluginhealth.supertext.com/auth/callback" ],
+     "PostLogoutRedirectUris": [ "https://pluginhealth.supertext.com/login" ],
      "AllowedScopes": [ "openid", "profile", "email", "custom.profile" ],
      "RequireConsent": false,
      "AlwaysIncludeUserClaimsInIdToken": true,

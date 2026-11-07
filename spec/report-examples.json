@@ -1,5 +1,5 @@
 {
-  "description": "Example report bodies: 'valid' ones the center accepts (HTTP 202), 'invalid' ones it rejects (HTTP 400). 'stored' shows what the center keeps of api_key_check and callback where it matters. Shared with the SDKs' tests.",
+  "description": "Example report bodies: 'valid' ones the center accepts (HTTP 202), 'invalid' ones it rejects (HTTP 400). 'stored' shows what the center keeps of api_key_check (with api_keys: their summary), api_key_configured, api_keys and callback where it matters. Shared with the SDKs' tests.",
   "valid": [
     {
       "name": "TYPO3 after saving the settings",
@@ -202,6 +202,71 @@
         "api_key_check": null,
         "callback_url": null
       }
+    },
+    {
+      "name": "WordPress with three named keys, one rejected",
+      "body": {
+        "schema": 1,
+        "event": "settings_saved",
+        "site_url": "https://blog.example.ch/",
+        "plugin": { "name": "supertext-wordpress-polylang", "version": "2.1.0" },
+        "system": { "name": "WordPress", "version": "6.9" },
+        "runtime": { "name": "PHP", "version": "8.3.12" },
+        "sdk_version": "0.5.0",
+        "api_keys": [
+          { "name": "AI translation", "configured": true, "check": { "status": "ok", "checked_at": "2026-10-13T09:15:00+02:00", "http_status": 200 } },
+          { "name": "Professional orders", "configured": true, "check": { "status": "invalid", "checked_at": "2026-10-13T09:15:01+02:00", "http_status": 401, "error_code": "UNAUTHORIZED" } },
+          { "name": "Review", "configured": false, "check": { "status": "missing", "checked_at": "2026-10-13T09:15:01+02:00" } }
+        ]
+      },
+      "stored": {
+        "api_key_configured": true,
+        "api_key_check": { "status": "invalid", "checked_at": "2026-10-13T07:15:01.000Z", "http_status": 401, "error_code": "UNAUTHORIZED" },
+        "api_keys": [
+          { "name": "AI translation", "configured": true, "status": "ok", "checked_at": "2026-10-13T07:15:00.000Z", "http_status": 200, "error_code": null },
+          { "name": "Professional orders", "configured": true, "status": "invalid", "checked_at": "2026-10-13T07:15:01.000Z", "http_status": 401, "error_code": "UNAUTHORIZED" },
+          { "name": "Review", "configured": false, "status": "missing", "checked_at": "2026-10-13T07:15:01.000Z", "http_status": null, "error_code": null }
+        ]
+      }
+    },
+    {
+      "name": "api_keys wins over the single-key fields; malformed and duplicate entries are dropped",
+      "body": {
+        "schema": 1,
+        "event": "check",
+        "site_url": "https://shop.example.ch",
+        "plugin": { "name": "Magento-Supertext-Translation", "version": "0.6.0" },
+        "system": { "name": "Magento" },
+        "api_key_configured": false,
+        "api_key_check": { "status": "missing" },
+        "api_keys": [
+          { "name": "Store view DE", "configured": true, "check": { "status": "ok", "checked_at": "2026-10-13T08:00:00Z" } },
+          { "name": "Store view DE", "configured": false },
+          { "name": "" },
+          "text",
+          { "name": "Store view FR", "configured": true, "check": { "status": "Not OK!" } }
+        ]
+      },
+      "stored": {
+        "api_key_configured": true,
+        "api_key_check": { "status": "ok", "checked_at": "2026-10-13T08:00:00.000Z", "http_status": null, "error_code": null },
+        "api_keys": [
+          { "name": "Store view DE", "configured": true, "status": "ok", "checked_at": "2026-10-13T08:00:00.000Z", "http_status": null, "error_code": null },
+          { "name": "Store view FR", "configured": true, "status": null, "checked_at": null, "http_status": null, "error_code": null }
+        ]
+      }
+    },
+    {
+      "name": "Empty api_keys: the plugin reports no keys",
+      "body": {
+        "schema": 1,
+        "event": "installed",
+        "site_url": "https://cms.example.ch",
+        "plugin": { "name": "Neos-Supertext-Translation", "version": "0.3.0" },
+        "system": { "name": "Neos" },
+        "api_keys": []
+      },
+      "stored": { "api_key_configured": false, "api_key_check": null, "api_keys": [] }
     }
   ],
   "invalid": [

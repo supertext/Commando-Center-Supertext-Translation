@@ -118,6 +118,59 @@ describe('report endpoint and store', () => {
     expect(statuses.at(-1)).toBe(429);
   });
 
+  describe('named API keys', () => {
+    const site = { ...base, site_url: 'https://wp.example.ch', plugin: { name: 'supertext-wordpress-polylang', version: '2.1.0' }, system: { name: 'WordPress' } };
+    const ip = { 'x-forwarded-for': '198.51.100.30' };
+    const find = async () => (await store.listInstallations({ q: 'wp.example.ch' }))[0];
+    const t1 = new Date(Date.now() - 120_000).toISOString();
+    const t2 = new Date(Date.now() - 60_000).toISOString();
+
+    it('stores every key and the worst status as the summary', async () => {
+      await post(
+        {
+          ...site,
+          event: 'settings_saved',
+          api_keys: [
+            { name: 'AI translation', configured: true, check: { status: 'ok', checked_at: t1, http_status: 200 } },
+            { name: 'Professional orders', configured: true, check: { status: 'invalid', checked_at: t1, http_status: 401 } },
+          ],
+        },
+        ip,
+      );
+      const i = await find();
+      expect(i.api_key_status).toBe('invalid');
+      expect(i.api_key_configured).toBe(true);
+      expect(i.api_keys?.map((k) => [k.name, k.status])).toEqual([
+        ['AI translation', 'ok'],
+        ['Professional orders', 'invalid'],
+      ]);
+      expect((await store.listInstallations({ keyStatus: 'problem' })).some((x) => x.id === i.id)).toBe(true);
+    });
+
+    it('keeps a newer stored check per key and records the change', async () => {
+      await post(
+        {
+          ...site,
+          event: 'api_key_check',
+          api_keys: [
+            { name: 'AI translation', configured: true },
+            { name: 'Professional orders', configured: true, check: { status: 'ok', checked_at: t2, http_status: 200 } },
+          ],
+        },
+        ip,
+      );
+      const i = await find();
+      expect(i.api_keys?.map((k) => [k.name, k.status])).toEqual([
+        ['AI translation', 'ok'],
+        ['Professional orders', 'ok'],
+      ]);
+      expect(i.api_key_status).toBe('ok');
+      const [last] = await store.installationHistory(i.id);
+      expect(last.changed).toBe(true);
+      expect(last.api_keys?.map((k) => k.status)).toEqual([null, 'ok']);
+    });
+  });
+
   describe('API key check', () => {
     const site = { ...base, site_url: 'https://keys.example.ch', plugin: { name: 'Strapi-Supertext-Translation', version: '0.2.0' }, system: { name: 'Strapi' } };
     const ip = { 'x-forwarded-for': '198.51.100.20' };
@@ -159,6 +212,7 @@ describe('report endpoint and store', () => {
     it('filters by key status', async () => {
       // The spec examples posted earlier add a rejected key (www.example.ch) and an unreachable check (cms.example.org).
       expect((await store.listInstallations({ keyStatus: 'problem' })).map((i) => `${i.site_url} ${i.api_key_status}`).sort()).toEqual([
+        'https://blog.example.ch invalid',
         'https://cms.example.org unreachable',
         'https://keys.example.ch invalid',
         'https://www.example.ch invalid',

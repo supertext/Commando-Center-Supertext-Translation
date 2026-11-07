@@ -9,7 +9,7 @@
 
     <PackageId>Supertext.PluginHealth</PackageId>
     <!-- Same version in every language (../../CHANGELOG.md) and in PluginHealthInfo.Version. -->
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>Supertext AG</Authors>
     <Company>Supertext AG</Company>
     <Description>Supertext Plugin Health: version reports to the Supertext Plugin Health dashboard, the API key check result and the plugin's ping endpoint answer. No dependencies.</Description>
@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <EmbeddedResource Include="config.json" LogicalName="Supertext.PluginHealth.config.json" />
   </ItemGroup>
 
 </Project>

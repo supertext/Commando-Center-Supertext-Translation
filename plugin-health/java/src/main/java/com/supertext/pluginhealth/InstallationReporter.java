@@ -7,7 +7,9 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -98,9 +100,18 @@ public final class InstallationReporter {
         return pluginVersion + "|" + (systemVersion == null ? "" : systemVersion) + "|" + (runtimeVersion == null ? "" : runtimeVersion);
     }
 
+    /** At most this many named keys are checked and reported; the rest are ignored. */
+    public static final int MAX_API_KEYS = 20;
+
     /** After the plugin's settings were saved: checks the key, reports {@code installed} or {@code settings_saved}. */
     public ReporterResult afterSettingsSaved(ReporterState state, String apiKey) {
-        ReporterState current = orEmpty(state).withKeyCheck(check(apiKey));
+        ReporterState current = withChecks(orEmpty(state), apiKey, null, true);
+        return reportIfDue(current, current.getReportedVersions() == null ? ReportEvent.INSTALLED : ReportEvent.SETTINGS_SAVED);
+    }
+
+    /** The same for several keys, by name in the order the settings show them (e.g. "AI translation"; use a LinkedHashMap). */
+    public ReporterResult afterSettingsSaved(ReporterState state, Map<String, String> apiKeys) {
+        ReporterState current = withChecks(orEmpty(state), null, named(apiKeys), true);
         return reportIfDue(current, current.getReportedVersions() == null ? ReportEvent.INSTALLED : ReportEvent.SETTINGS_SAVED);
     }
 
@@ -109,18 +120,21 @@ public final class InstallationReporter {
      * last check (e.g. a new key from the environment), then reports what changed, if anything.
      */
     public ReporterResult onRequest(ReporterState state, String apiKey) {
-        ReporterState current = orEmpty(state);
-        KeyCheck last = current.getKeyCheck();
-        if (last == null || !last.fingerprint().equals(fingerprint(apiKey))) {
-            current = current.withKeyCheck(check(apiKey));
-        }
+        ReporterState current = withChecks(orEmpty(state), apiKey, null, false);
+        return reportIfDue(current, dueEvent(current));
+    }
+
+    /** The same for several keys, by name: checks each key that changed. */
+    public ReporterResult onRequest(ReporterState state, Map<String, String> apiKeys) {
+        ReporterState current = withChecks(orEmpty(state), null, named(apiKeys), false);
         return reportIfDue(current, dueEvent(current));
     }
 
     /** A translation was rejected with 401 or 403: the key is {@code invalid} (the checker isn't called). */
     public ReporterResult authenticationFailed(ReporterState state, String apiKey, int httpStatus) {
-        KeyCheck check = new KeyCheck("invalid", KeyCheck.isoSeconds(clock.instant()), httpStatus, null, fingerprint(apiKey));
-        ReporterState current = orEmpty(state).withKeyCheck(check);
+        ReporterState base = orEmpty(state);
+        ReporterState current = new ReporterState(base.getReportedVersions(),
+                base.getKeyChecks() != null ? null : base.getReportedKeyStatus(), base.getLastFailureAt(), invalid(apiKey, httpStatus));
         return reportIfDue(current, dueEvent(current));
     }
 
@@ -129,9 +143,31 @@ public final class InstallationReporter {
         return authenticationFailed(state, apiKey, 401);
     }
 
+    /** The same for several keys: only {@code keyName} becomes invalid ({@code null}: all), the others keep their result. */
+    public ReporterResult authenticationFailed(ReporterState state, Map<String, String> apiKeys, int httpStatus, String keyName) {
+        Map<String, String> keys = named(apiKeys);
+        ReporterState current = withChecks(orEmpty(state), null, keys, false);
+        Map<String, KeyCheck> checks = new LinkedHashMap<>(current.getKeyChecks());
+        String wanted = keyName == null ? null : keyName.trim();
+        keys.forEach((name, key) -> {
+            if (wanted == null || wanted.equals(name)) {
+                checks.put(name, invalid(key, httpStatus));
+            }
+        });
+        current = new ReporterState(current.getReportedVersions(), current.getReportedKeyStatus(), current.getLastFailureAt(), null,
+                checks, current.getReportedKeyStatuses());
+        return reportIfDue(current, dueEvent(current));
+    }
+
     /** The "Test connection" button: checks the key again, reports a change. */
     public ReporterResult testConnection(ReporterState state, String apiKey) {
-        ReporterState current = orEmpty(state).withKeyCheck(check(apiKey));
+        ReporterState current = withChecks(orEmpty(state), apiKey, null, true);
+        return reportIfDue(current, dueEvent(current));
+    }
+
+    /** The same for several keys, by name. */
+    public ReporterResult testConnection(ReporterState state, Map<String, String> apiKeys) {
+        ReporterState current = withChecks(orEmpty(state), null, named(apiKeys), true);
         return reportIfDue(current, dueEvent(current));
     }
 
@@ -152,19 +188,21 @@ public final class InstallationReporter {
         if (sdkVersion != null) {
             body.put("sdk_version", sdkVersion);
         }
-        KeyCheck check = orEmpty(state).getKeyCheck();
-        if (check != null) {
+        ReporterState current = orEmpty(state);
+        KeyCheck check = current.getKeyCheck();
+        if (current.getKeyChecks() != null) {
+            List<Object> keys = new ArrayList<>();
+            current.getKeyChecks().forEach((name, c) -> {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("name", name);
+                entry.put("configured", !c.fingerprint().isEmpty());
+                entry.put("check", checkBody(c));
+                keys.add(entry);
+            });
+            body.put("api_keys", keys);
+        } else if (check != null) {
             body.put("api_key_configured", !check.fingerprint().isEmpty());
-            Map<String, Object> c = new LinkedHashMap<>();
-            c.put("status", check.status());
-            c.put("checked_at", check.checkedAt());
-            if (check.httpStatus() != null) {
-                c.put("http_status", check.httpStatus());
-            }
-            if (check.errorCode() != null) {
-                c.put("error_code", check.errorCode());
-            }
-            body.put("api_key_check", c);
+            body.put("api_key_check", checkBody(check));
         }
         if (callbackUrl != null) {
             Map<String, Object> callback = new LinkedHashMap<>();
@@ -180,6 +218,65 @@ public final class InstallationReporter {
     }
 
     // ---------------------------------------------------------------- internals
+
+    private static Map<String, Object> checkBody(KeyCheck check) {
+        Map<String, Object> c = new LinkedHashMap<>();
+        c.put("status", check.status());
+        c.put("checked_at", check.checkedAt());
+        if (check.httpStatus() != null) {
+            c.put("http_status", check.httpStatus());
+        }
+        if (check.errorCode() != null) {
+            c.put("error_code", check.errorCode());
+        }
+        return c;
+    }
+
+    /** The state with fresh checks: always ({@code force}), else only for keys that are new or changed. */
+    private ReporterState withChecks(ReporterState state, String apiKey, Map<String, String> apiKeys, boolean force) {
+        if (apiKeys == null) {
+            KeyCheck last = state.getKeyCheck();
+            if (!force && state.getKeyChecks() == null && last != null && last.fingerprint().equals(fingerprint(apiKey))) {
+                return state;
+            }
+            // Coming from several keys: report the single key even if its status is the one reported before.
+            return new ReporterState(state.getReportedVersions(), state.getKeyChecks() != null ? null : state.getReportedKeyStatus(),
+                    state.getLastFailureAt(), check(apiKey));
+        }
+        Map<String, KeyCheck> checks = new LinkedHashMap<>();
+        apiKeys.forEach((name, key) -> {
+            KeyCheck old = state.getKeyChecks() == null ? null : state.getKeyChecks().get(name);
+            checks.put(name, !force && old != null && old.fingerprint().equals(fingerprint(key)) ? old : check(key));
+        });
+        return new ReporterState(state.getReportedVersions(), state.getReportedKeyStatus(), state.getLastFailureAt(), null, checks,
+                state.getReportedKeyStatuses());
+    }
+
+    /** The named keys (at most {@link #MAX_API_KEYS}, names trimmed, blank and repeated names dropped), in order. */
+    private static Map<String, String> named(Map<String, String> apiKeys) {
+        Map<String, String> out = new LinkedHashMap<>();
+        if (apiKeys == null) {
+            return out;
+        }
+        for (Map.Entry<String, String> e : apiKeys.entrySet()) {
+            String name = e.getKey() == null ? "" : e.getKey().trim();
+            if (name.length() > 60) {
+                name = name.substring(0, 60);
+            }
+            if (name.isEmpty() || out.containsKey(name)) {
+                continue;
+            }
+            out.put(name, e.getValue() == null ? "" : e.getValue());
+            if (out.size() >= MAX_API_KEYS) {
+                break;
+            }
+        }
+        return out;
+    }
+
+    private KeyCheck invalid(String apiKey, int httpStatus) {
+        return new KeyCheck("invalid", KeyCheck.isoSeconds(clock.instant()), httpStatus, null, fingerprint(apiKey));
+    }
 
     private KeyCheck check(String apiKey) {
         try {
@@ -208,6 +305,18 @@ public final class InstallationReporter {
         }
         if (!state.getReportedVersions().equals(versions())) {
             return ReportEvent.UPGRADED;
+        }
+        if (state.getKeyChecks() != null) {
+            Map<String, String> reported = state.getReportedKeyStatuses() == null ? Map.of() : state.getReportedKeyStatuses();
+            if (reported.size() != state.getKeyChecks().size()) {
+                return ReportEvent.API_KEY_CHECK;
+            }
+            for (Map.Entry<String, KeyCheck> e : state.getKeyChecks().entrySet()) {
+                if (!e.getValue().status().equals(reported.get(e.getKey()))) {
+                    return ReportEvent.API_KEY_CHECK;
+                }
+            }
+            return null;
         }
         KeyCheck check = state.getKeyCheck();
         if (check != null && !check.status().equals(state.getReportedKeyStatus())) {
@@ -254,10 +363,18 @@ public final class InstallationReporter {
         ReporterState next;
         if (ok) {
             KeyCheck check = state.getKeyCheck();
-            next = new ReporterState(versions(), check != null ? check.status() : state.getReportedKeyStatus(), null, check);
+            Map<String, String> statuses = state.getReportedKeyStatuses();
+            if (state.getKeyChecks() != null) {
+                statuses = new LinkedHashMap<>();
+                for (Map.Entry<String, KeyCheck> e : state.getKeyChecks().entrySet()) {
+                    statuses.put(e.getKey(), e.getValue().status());
+                }
+            }
+            next = new ReporterState(versions(), check != null ? check.status() : state.getReportedKeyStatus(), null, check,
+                    state.getKeyChecks(), statuses);
         } else {
             next = new ReporterState(state.getReportedVersions(), state.getReportedKeyStatus(),
-                    KeyCheck.isoSeconds(clock.instant()), state.getKeyCheck());
+                    KeyCheck.isoSeconds(clock.instant()), state.getKeyCheck(), state.getKeyChecks(), state.getReportedKeyStatuses());
         }
         return new ReporterResult(next, event, ok);
     }

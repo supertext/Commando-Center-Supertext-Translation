@@ -18,9 +18,14 @@ public final class ReporterResult {
         return state;
     }
 
-    /** The latest key check (show it on the settings or status page); {@code null} if none ran yet. */
+    /** The latest key check (show it on the settings or status page); {@code null} if none ran yet or with several keys. */
     public KeyCheck getCheck() {
         return state.getKeyCheck();
+    }
+
+    /** Several keys: the latest check per name; {@code null} with one key. */
+    public java.util.Map<String, KeyCheck> getChecks() {
+        return state.getKeyChecks();
     }
 
     /** The event that was reported (or tried); {@code null} when nothing was due. */

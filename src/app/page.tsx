@@ -162,6 +162,15 @@ export default async function InstallationsPage({ searchParams }: { searchParams
                       httpStatus={i.api_key_http_status}
                       errorCode={i.api_key_error_code}
                     />
+                    {i.api_keys && i.api_keys.length > 1 && (
+                      <span
+                        className="muted small"
+                        title={i.api_keys.map((k) => `${k.name}: ${k.status ?? (k.configured ? 'set' : 'not set')}`).join('\n')}
+                      >
+                        {' '}
+                        {i.api_keys.length} keys
+                      </span>
+                    )}
                   </td>
                   <td>
                     <CallbackStatus

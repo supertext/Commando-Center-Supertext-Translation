@@ -12,7 +12,7 @@ namespace Supertext\PluginHealth;
 final class PluginHealth
 {
     /** The library's version, the same in all five languages (plugin-health/CHANGELOG.md). */
-    public const PLUGIN_HEALTH_VERSION = '0.1.0';
+    public const PLUGIN_HEALTH_VERSION = '0.2.0';
 
     private function __construct()
     {

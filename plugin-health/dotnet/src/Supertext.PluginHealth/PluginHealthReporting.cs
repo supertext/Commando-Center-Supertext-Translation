@@ -9,8 +9,30 @@ namespace Supertext.PluginHealth;
 /// </summary>
 public static partial class Reporting
 {
-    /// <summary>The live Plugin Health dashboard. <c>SUPERTEXT_REPORT_URL</c> in the environment overrides it.</summary>
-    public const string DefaultReportUrl = "https://commandocenter-production.up.railway.app/api/v1/report";
+    /// <summary>
+    /// The live Plugin Health dashboard, from the embedded resource <c>config.json</c> (a copy of
+    /// plugin-health/config.json; its manifest name ends with <c>PluginHealth.config.json</c>).
+    /// <c>SUPERTEXT_REPORT_URL</c> in the environment overrides it. Empty if the resource is missing.
+    /// </summary>
+    public static readonly string DefaultReportUrl = LoadDefaultReportUrl();
+
+    private static string LoadDefaultReportUrl()
+    {
+        try
+        {
+            var assembly = typeof(Reporting).Assembly;
+            var name = Array.Find(assembly.GetManifestResourceNames(),
+                n => n.EndsWith("PluginHealth.config.json", StringComparison.OrdinalIgnoreCase));
+            if (name is null) return "";
+            using var stream = assembly.GetManifestResourceStream(name);
+            if (stream is null) return "";
+            return System.Text.Json.Nodes.JsonNode.Parse(stream)?["reportUrl"]?.GetValue<string>() ?? "";
+        }
+        catch (Exception)
+        {
+            return "";
+        }
+    }
 
     /// <summary>Timeout of a report.</summary>
     public static readonly TimeSpan ReportTimeout = TimeSpan.FromSeconds(3);

@@ -188,3 +188,6 @@ header.top .who { color: rgba(255, 255, 255, .85); font-size: 14px; margin-right
   form.filters select { flex: 1 1 150px; min-width: 0; }
   .login { margin: 6vh auto; padding: 22px 18px; }
 }
+
+/* Named API keys on the installation page. */
+ul.keys { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }

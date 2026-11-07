@@ -25,7 +25,9 @@ from .version import PLUGIN_HEALTH_VERSION
 __all__ = [
     "DEFAULT_REPORT_URL",
     "FAILURE_BACKOFF",
+    "MAX_API_KEYS",
     "REPORT_TIMEOUT",
+    "ApiKeys",
     "InstallationReporter",
     "NameVersion",
     "PingResponse",
@@ -38,13 +40,31 @@ __all__ = [
     "reports_enabled",
 ]
 
-DEFAULT_REPORT_URL: Final = "https://commandocenter-production.up.railway.app/api/v1/report"
+
+def _default_report_url() -> str:
+    """The live Plugin Health dashboard, from config.json next to this file (a copy of plugin-health/config.json)."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json"), encoding="utf-8") as fh:
+            url = json.load(fh).get("reportUrl")
+        return url if isinstance(url, str) else ""
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+DEFAULT_REPORT_URL: Final = _default_report_url()
+"""The live Plugin Health dashboard (config.json). SUPERTEXT_REPORT_URL overrides it; '' if config.json is missing."""
 REPORT_TIMEOUT: Final = 3.0
 """Seconds a report may take."""
 FAILURE_BACKOFF: Final = 3600.0
 """Seconds without a new report after a failed one (except :meth:`InstallationReporter.report_check`)."""
 
 StateInput = Union["ReporterState", Mapping[str, Any], str, bytes, None]
+
+ApiKeys = str | None | Mapping[str, str]
+"""One key (a string), or several by name (``{"AI translation": key, ...}``, in the order the settings show them)."""
+
+MAX_API_KEYS: Final = 20
+"""At most this many named keys are checked and reported; the rest are ignored."""
 """A state as the plugin stored it: a :class:`ReporterState`, its ``to_dict()``, its JSON, or ``None``."""
 
 ReportEvent = Literal["installed", "settings_saved", "upgraded", "api_key_check", "check"]
@@ -66,8 +86,9 @@ class ReporterState:
     """What the plugin stores between requests.
 
     Store ``to_json()`` (or ``to_dict()``) as it is and read it back with :func:`reporter_state`. The
-    camelCase shape (``reportedVersions``, ``reportedKeyStatus``, ``lastFailureAt``, ``keyCheck``) is the
-    same in every language and the same the Supertext SDK 0.1 to 0.2 reporter stored.
+    camelCase shape (``reportedVersions``, ``reportedKeyStatus``, ``lastFailureAt``, ``keyCheck``,
+    ``keyChecks``, ``reportedKeyStatuses``) is the same in every language (the Supertext SDK 0.1 to 0.2
+    reporter stored the first four). The last two are for plugins with several named keys.
     """
 
     reported_versions: str | None = None
@@ -77,7 +98,11 @@ class ReporterState:
     last_failure_at: str | None = None
     """When the last report failed (no new attempt for an hour)."""
     key_check: KeyCheck | None = None
-    """The latest key check."""
+    """The latest key check (one key)."""
+    key_checks: Mapping[str, KeyCheck] | None = None
+    """Several keys: the latest check per name, in the plugin's order; ``None`` with one key."""
+    reported_key_statuses: Mapping[str, str] | None = None
+    """Several keys: the statuses last reported successfully, by name."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -85,6 +110,8 @@ class ReporterState:
             "reportedKeyStatus": self.reported_key_status,
             "lastFailureAt": self.last_failure_at,
             "keyCheck": self.key_check.to_dict() if self.key_check else None,
+            "keyChecks": None if self.key_checks is None else {n: c.to_dict() for n, c in self.key_checks.items()},
+            "reportedKeyStatuses": None if self.reported_key_statuses is None else dict(self.reported_key_statuses),
         }
 
     def to_json(self) -> str:
@@ -96,11 +123,13 @@ class ReporterResult:
     state: ReporterState
     """Store this."""
     check: KeyCheck | None
-    """The latest key check (show it on the settings or status page)."""
+    """The latest key check (show it on the settings or status page); ``None`` with several keys."""
     event: ReportEvent | None
     """The event that was reported (or tried); ``None`` when nothing was due."""
     sent: bool
     """Whether the center accepted the report."""
+    checks: Mapping[str, KeyCheck] | None = None
+    """Several keys: the latest check per name; ``None`` with one key."""
 
 
 @dataclass(frozen=True)
@@ -131,7 +160,33 @@ def reporter_state(value: object) -> ReporterState:
 
     raw_check = data.get("keyCheck")
     key_check = KeyCheck.from_value(raw_check) if isinstance(raw_check, Mapping) else None
-    return ReporterState(text("reportedVersions"), text("reportedKeyStatus"), text("lastFailureAt"), key_check)
+    key_checks: dict[str, KeyCheck] | None = None
+    raw_checks = data.get("keyChecks")
+    if isinstance(raw_checks, Mapping):
+        key_checks = {}
+        for name, item in raw_checks.items():
+            parsed = KeyCheck.from_value(item) if isinstance(item, Mapping) else None
+            if parsed is not None:
+                key_checks[str(name)] = parsed
+    reported: dict[str, str] | None = None
+    raw_reported = data.get("reportedKeyStatuses")
+    if isinstance(raw_reported, Mapping):
+        reported = {str(n): s for n, s in raw_reported.items() if isinstance(s, str)}
+    return ReporterState(
+        text("reportedVersions"), text("reportedKeyStatus"), text("lastFailureAt"), key_check, key_checks, reported
+    )
+
+
+def _named_keys(api_keys: Mapping[str, str]) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for raw, key in api_keys.items():
+        name = str(raw).strip()[:60]
+        if not name or any(n == name for n, _ in out):
+            continue
+        out.append((name, key if isinstance(key, str) else ""))
+        if len(out) >= MAX_API_KEYS:
+            break
+    return out
 
 
 class _FromEnvironment:
@@ -225,27 +280,44 @@ class InstallationReporter:
 
     # -- Actions -----------------------------------------------------------------------------
 
-    def after_settings_saved(self, state: StateInput, api_key: str | None) -> ReporterResult:
-        """After the plugin's settings were saved: checks the key, reports ``installed`` or ``settings_saved``."""
-        current = replace(reporter_state(state), key_check=self._check(api_key))
+    def after_settings_saved(self, state: StateInput, api_key: ApiKeys) -> ReporterResult:
+        """After the plugin's settings were saved: checks the key(s), reports ``installed`` or ``settings_saved``."""
+        current = self._with_checks(reporter_state(state), api_key, force=True)
         return self._report_if_due(current, "installed" if current.reported_versions is None else "settings_saved")
 
-    def on_request(self, state: StateInput, api_key: str | None) -> ReporterResult:
-        """On back-end requests that run the plugin's code: checks a changed key, reports what changed."""
-        current = reporter_state(state)
-        if current.key_check is None or current.key_check.fingerprint != self._fingerprint(api_key):
-            current = replace(current, key_check=self._check(api_key))
+    def on_request(self, state: StateInput, api_key: ApiKeys) -> ReporterResult:
+        """On back-end requests that run the plugin's code: checks changed keys, reports what changed."""
+        current = self._with_checks(reporter_state(state), api_key, force=False)
         return self._report_if_due(current, self._due_event(current))
 
-    def authentication_failed(self, state: StateInput, api_key: str | None, http_status: int = 401) -> ReporterResult:
-        """A translation was rejected with 401/403: the key is invalid (no check against Supertext)."""
-        check = KeyCheck("invalid", iso_seconds(self._now()), http_status, None, self._fingerprint(api_key))
-        current = replace(reporter_state(state), key_check=check)
+    def authentication_failed(
+        self, state: StateInput, api_key: ApiKeys, http_status: int = 401, key_name: str | None = None
+    ) -> ReporterResult:
+        """A translation was rejected with 401/403: the key is invalid (no check against Supertext).
+
+        With several keys, ``key_name`` says which one (the others keep their result; ``None``: all).
+        """
+        base = reporter_state(state)
+        if isinstance(api_key, Mapping):
+            current = self._with_checks(base, api_key, force=False)
+            checks = dict(current.key_checks or {})
+            for name, key in _named_keys(api_key):
+                if key_name is None or name == key_name.strip():
+                    checks[name] = self._invalid(key, http_status)
+            current = replace(current, key_checks=checks)
+        else:
+            current = replace(
+                base,
+                key_check=self._invalid(api_key, http_status),
+                key_checks=None,
+                reported_key_statuses=None,
+                reported_key_status=None if base.key_checks is not None else base.reported_key_status,
+            )
         return self._report_if_due(current, self._due_event(current))
 
-    def test_connection(self, state: StateInput, api_key: str | None) -> ReporterResult:
-        """The "Test connection" button: checks the key, reports a change."""
-        current = replace(reporter_state(state), key_check=self._check(api_key))
+    def test_connection(self, state: StateInput, api_key: ApiKeys) -> ReporterResult:
+        """The "Test connection" button: checks the key(s), reports a change."""
+        current = self._with_checks(reporter_state(state), api_key, force=True)
         return self._report_if_due(current, self._due_event(current))
 
     def report_check(self, state: StateInput) -> ReporterResult:
@@ -265,15 +337,14 @@ class InstallationReporter:
         }
         if self.sdk_version:
             body["sdk_version"] = self.sdk_version
-        check = current.key_check
-        if check is not None:
-            body["api_key_configured"] = check.fingerprint != ""
-            entry: dict[str, Any] = {"status": check.status, "checked_at": check.checked_at}
-            if check.http_status is not None:
-                entry["http_status"] = check.http_status
-            if check.error_code is not None:
-                entry["error_code"] = check.error_code
-            body["api_key_check"] = entry
+        if current.key_checks is not None:
+            body["api_keys"] = [
+                {"name": name, "configured": check.fingerprint != "", "check": _check_body(check)}
+                for name, check in current.key_checks.items()
+            ]
+        elif current.key_check is not None:
+            body["api_key_configured"] = current.key_check.fingerprint != ""
+            body["api_key_check"] = _check_body(current.key_check)
         if self.callback_url:
             body["callback"] = {"url": self.callback_url}
         return body
@@ -285,9 +356,45 @@ class InstallationReporter:
             return "installed"
         if state.reported_versions != self.versions:
             return "upgraded"
+        if state.key_checks is not None:
+            reported = state.reported_key_statuses or {}
+            if len(reported) != len(state.key_checks) or any(
+                reported.get(name) != check.status for name, check in state.key_checks.items()
+            ):
+                return "api_key_check"
+            return None
         if state.key_check is not None and state.key_check.status != state.reported_key_status:
             return "api_key_check"
         return None
+
+    def _with_checks(self, state: ReporterState, api_key: ApiKeys, *, force: bool) -> ReporterState:
+        """The state with fresh checks: always (``force``), else only for keys that are new or changed."""
+        if not isinstance(api_key, Mapping):
+            if (
+                not force
+                and state.key_checks is None
+                and state.key_check is not None
+                and state.key_check.fingerprint == self._fingerprint(api_key)
+            ):
+                return state
+            # Coming from several keys: report the single key even if its status is the one reported before.
+            return replace(
+                state,
+                key_check=self._check(api_key),
+                key_checks=None,
+                reported_key_statuses=None,
+                reported_key_status=None if state.key_checks is not None else state.reported_key_status,
+            )
+        checks: dict[str, KeyCheck] = {}
+        for name, key in _named_keys(api_key):
+            old = (state.key_checks or {}).get(name)
+            checks[name] = (
+                old if not force and old is not None and old.fingerprint == self._fingerprint(key) else self._check(key)
+            )
+        return replace(state, key_check=None, key_checks=checks)
+
+    def _invalid(self, api_key: str | None, http_status: int) -> KeyCheck:
+        return KeyCheck("invalid", iso_seconds(self._now()), http_status, None, self._fingerprint(api_key))
 
     def _fingerprint(self, api_key: str | None) -> str:
         try:
@@ -307,16 +414,16 @@ class InstallationReporter:
 
     def _report_if_due(self, state: ReporterState, event: ReportEvent | None) -> ReporterResult:
         if event is None or not self._enabled:
-            return ReporterResult(state, state.key_check, None, False)
+            return ReporterResult(state, state.key_check, None, False, state.key_checks)
         if state.last_failure_at is not None:
             failed = parse_iso(state.last_failure_at)
             if failed is not None and self._now() - failed < FAILURE_BACKOFF:
-                return ReporterResult(state, state.key_check, None, False)
+                return ReporterResult(state, state.key_check, None, False, state.key_checks)
         return self._send(state, event)
 
     def _send(self, state: ReporterState, event: ReportEvent) -> ReporterResult:
         if not self._enabled:
-            return ReporterResult(state, state.key_check, None, False)
+            return ReporterResult(state, state.key_check, None, False, state.key_checks)
         ok = False
         try:
             body = json.dumps(self.build_report(event, state), separators=(",", ":")).encode("utf-8")
@@ -334,12 +441,30 @@ class InstallationReporter:
             ok = False  # never fails the caller: the center is optional
         if ok:
             key_status = state.key_check.status if state.key_check else state.reported_key_status
+            statuses = (
+                {name: check.status for name, check in state.key_checks.items()}
+                if state.key_checks is not None
+                else state.reported_key_statuses
+            )
             next_state = replace(
-                state, reported_versions=self.versions, reported_key_status=key_status, last_failure_at=None
+                state,
+                reported_versions=self.versions,
+                reported_key_status=key_status,
+                reported_key_statuses=statuses,
+                last_failure_at=None,
             )
         else:
             next_state = replace(state, last_failure_at=iso_seconds(self._now()))
-        return ReporterResult(next_state, next_state.key_check, event, ok)
+        return ReporterResult(next_state, next_state.key_check, event, ok, next_state.key_checks)
+
+
+def _check_body(check: KeyCheck) -> dict[str, Any]:
+    entry: dict[str, Any] = {"status": check.status, "checked_at": check.checked_at}
+    if check.http_status is not None:
+        entry["http_status"] = check.http_status
+    if check.error_code is not None:
+        entry["error_code"] = check.error_code
+    return entry
 
 
 def _name_version(value: NameVersion) -> dict[str, str]:

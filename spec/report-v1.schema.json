@@ -46,7 +46,7 @@
       }
     },
     "sdk_version": { "description": "Version of the bundled Supertext SDK, if any.", "type": "string", "maxLength": 50 },
-    "api_key_configured": { "description": "Whether a Supertext API key is set. Never the key itself.", "type": "boolean" },
+    "api_key_configured": { "description": "Whether a Supertext API key is set. Never the key itself. With api_keys the center ignores it (any key configured).", "type": "boolean" },
     "callback": {
       "description": "The plugin's public ping endpoint. The center calls GET <url>?challenge=<c> to see whether the installation is reachable from the internet (spec/callback-vectors.json). Must be on the site's host or a subdomain of it. Omit it where the plugin has no public endpoint (hosted apps) or reporting is off.",
       "type": "object",
@@ -69,6 +69,20 @@
         "checked_at": { "description": "When the check ran (ISO 8601 with time zone). Missing: the center uses the time it received the report.", "type": "string", "format": "date-time" },
         "http_status": { "description": "HTTP status Supertext answered with, if any.", "type": "integer", "minimum": 100, "maximum": 599 },
         "error_code": { "description": "Supertext's error code from the response body, if any (e.g. INVALID_API_KEY).", "type": "string", "maxLength": 100 }
+      }
+    },
+    "api_keys": {
+      "description": "Optional, for plugins with several Supertext API keys (e.g. WordPress: AI translation and professional orders): one entry per key, 0 to 20, each with its own name. When present, the center stores every key and ignores api_key_configured and api_key_check (it keeps their summary: any key configured, the worst check). Malformed entries, duplicate names and entries past 20 are dropped; the rest of the report is stored. Plugins with one key may keep sending api_key_configured and api_key_check instead.",
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "description": "What the key is for, as the plugin's settings call it (e.g. \"AI translation\"). Unique within the report, 1 to 60 printable characters. Never the key itself.", "type": "string", "minLength": 1, "maxLength": 60 },
+          "configured": { "description": "Whether this key is set.", "type": "boolean" },
+          "check": { "description": "The latest check of this key, as api_key_check. Missing or null: not checked yet.", "oneOf": [{ "$ref": "#/properties/api_key_check" }, { "type": "null" }] }
+        }
       }
     }
   }

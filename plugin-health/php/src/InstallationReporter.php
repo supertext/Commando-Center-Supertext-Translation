@@ -22,7 +22,23 @@ use Supertext\PluginHealth\Http\HttpTransport;
  */
 final class InstallationReporter
 {
-    public const DEFAULT_REPORT_URL = 'https://commandocenter-production.up.railway.app/api/v1/report';
+    /**
+     * The live Plugin Health dashboard, read from config.json next to this file (a copy of
+     * plugin-health/config.json). SUPERTEXT_REPORT_URL overrides it. '' if the file is missing.
+     */
+    public static function defaultReportUrl(): string
+    {
+        if (self::$defaultReportUrl === null) {
+            $json = @file_get_contents(__DIR__ . '/config.json');
+            $config = \is_string($json) ? json_decode($json, true) : null;
+            $url = \is_array($config) ? ($config['reportUrl'] ?? null) : null;
+            self::$defaultReportUrl = \is_string($url) ? $url : '';
+        }
+
+        return self::$defaultReportUrl;
+    }
+
+    private static ?string $defaultReportUrl = null;
 
     /** Seconds a report may take. */
     public const REPORT_TIMEOUT = 3;
@@ -35,6 +51,9 @@ final class InstallationReporter
     public const EVENT_UPGRADED = 'upgraded';
     public const EVENT_API_KEY_CHECK = 'api_key_check';
     public const EVENT_CHECK = 'check';
+
+    /** At most this many named keys are checked and reported; the rest are ignored. */
+    public const MAX_API_KEYS = 20;
 
     private const CHALLENGE = '/^[A-Za-z0-9_-]{16,64}$/D';
 
@@ -61,7 +80,7 @@ final class InstallationReporter
      * @param string|null              $runtimeName    default "PHP"
      * @param string|null              $runtimeVersion default PHP_VERSION (when $runtimeName is null)
      * @param string|null              $callbackUrl    the plugin's public ping endpoint; null for hosted apps without one
-     * @param string|null              $reportUrl      default SUPERTEXT_REPORT_URL from the environment, else DEFAULT_REPORT_URL
+     * @param string|null              $reportUrl      default SUPERTEXT_REPORT_URL from the environment, else defaultReportUrl() (config.json)
      * @param HttpTransport|null       $transport      HTTP for the report; default CurlTransport
      * @param (callable(): float)|null $now            wall-clock Unix time in seconds (for tests)
      */
@@ -92,7 +111,7 @@ final class InstallationReporter
         $this->reportUrl = match (true) {
             $reportUrl !== null && trim($reportUrl) !== '' => trim($reportUrl),
             \is_string($env) && trim($env) !== '' => trim($env),
-            default => self::DEFAULT_REPORT_URL,
+            default => self::defaultReportUrl(),
         };
         $this->now = $now ?? static fn (): float => microtime(true);
     }
@@ -156,38 +175,68 @@ final class InstallationReporter
         return implode('|', [$this->pluginVersion, $this->systemVersion ?? '', $this->runtimeVersion ?? '']);
     }
 
-    /** After the plugin's settings were saved: checks the key, reports `installed` or `settings_saved`. */
-    public function afterSettingsSaved(?ReporterState $state, #[\SensitiveParameter] string $apiKey): ReporterResult
+    /**
+     * After the plugin's settings were saved: checks the key(s), reports `installed` or `settings_saved`.
+     *
+     * @param string|array<string, string> $apiKeys one key, or several by name in the order the settings show them
+     */
+    public function afterSettingsSaved(?ReporterState $state, #[\SensitiveParameter] string|array $apiKeys): ReporterResult
     {
-        $current = ($state ?? ReporterState::empty())->withKeyCheck($this->check($apiKey));
+        $current = $this->withChecks($state ?? ReporterState::empty(), $apiKeys, true);
 
         return $this->reportIfDue($current, $current->reportedVersions === null ? self::EVENT_INSTALLED : self::EVENT_SETTINGS_SAVED);
     }
 
-    /** On back-end requests that run the plugin's code: checks a changed key, reports what changed. */
-    public function onRequest(?ReporterState $state, #[\SensitiveParameter] string $apiKey): ReporterResult
+    /**
+     * On back-end requests that run the plugin's code: checks changed keys, reports what changed.
+     *
+     * @param string|array<string, string> $apiKeys
+     */
+    public function onRequest(?ReporterState $state, #[\SensitiveParameter] string|array $apiKeys): ReporterResult
     {
-        $current = $state ?? ReporterState::empty();
-        if ($current->keyCheck === null || $current->keyCheck->fingerprint !== $this->fingerprint($apiKey)) {
-            $current = $current->withKeyCheck($this->check($apiKey));
+        $current = $this->withChecks($state ?? ReporterState::empty(), $apiKeys, false);
+
+        return $this->reportIfDue($current, $this->dueEvent($current));
+    }
+
+    /**
+     * A translation was rejected with 401/403: the key is invalid (no check against Supertext). With several
+     * keys, $keyName says which one (the others keep their result; null: all).
+     *
+     * @param string|array<string, string> $apiKeys
+     */
+    public function authenticationFailed(?ReporterState $state, #[\SensitiveParameter] string|array $apiKeys, int $httpStatus = 401, ?string $keyName = null): ReporterResult
+    {
+        $base = $state ?? ReporterState::empty();
+        if (\is_string($apiKeys)) {
+            $current = new ReporterState(
+                $base->reportedVersions,
+                $base->keyChecks !== null ? null : $base->reportedKeyStatus,
+                $base->lastFailureAt,
+                $this->invalid($apiKeys, $httpStatus),
+            );
+        } else {
+            $current = $this->withChecks($base, $apiKeys, false);
+            $keyChecks = $current->keyChecks ?? [];
+            foreach (self::namedKeys($apiKeys) as $name => $key) {
+                if ($keyName === null || $name === trim($keyName)) {
+                    $keyChecks[$name] = $this->invalid($key, $httpStatus);
+                }
+            }
+            $current = new ReporterState($current->reportedVersions, $current->reportedKeyStatus, $current->lastFailureAt, null, $keyChecks, $current->reportedKeyStatuses);
         }
 
         return $this->reportIfDue($current, $this->dueEvent($current));
     }
 
-    /** A translation was rejected with 401/403: the key is invalid (no check against Supertext). */
-    public function authenticationFailed(?ReporterState $state, #[\SensitiveParameter] string $apiKey, int $httpStatus = 401): ReporterResult
+    /**
+     * The "Test connection" button: checks the key(s), reports a change.
+     *
+     * @param string|array<string, string> $apiKeys
+     */
+    public function testConnection(?ReporterState $state, #[\SensitiveParameter] string|array $apiKeys): ReporterResult
     {
-        $check = new KeyCheck(KeyCheck::INVALID, $this->timestamp(), $httpStatus, null, $this->fingerprint($apiKey));
-        $current = ($state ?? ReporterState::empty())->withKeyCheck($check);
-
-        return $this->reportIfDue($current, $this->dueEvent($current));
-    }
-
-    /** The "Test connection" button: checks the key, reports a change. */
-    public function testConnection(?ReporterState $state, #[\SensitiveParameter] string $apiKey): ReporterResult
-    {
-        $current = ($state ?? ReporterState::empty())->withKeyCheck($this->check($apiKey));
+        $current = $this->withChecks($state ?? ReporterState::empty(), $apiKeys, true);
 
         return $this->reportIfDue($current, $this->dueEvent($current));
     }
@@ -216,17 +265,15 @@ final class InstallationReporter
         if ($this->sdkVersion !== null && $this->sdkVersion !== '') {
             $body['sdk_version'] = $this->sdkVersion;
         }
-        $check = $state->keyCheck;
-        if ($check !== null) {
-            $body['api_key_configured'] = $check->fingerprint !== '';
-            $c = ['status' => $check->status, 'checked_at' => $check->checkedAt];
-            if ($check->httpStatus !== null) {
-                $c['http_status'] = $check->httpStatus;
+        if ($state->keyChecks !== null) {
+            $keys = [];
+            foreach ($state->keyChecks as $name => $check) {
+                $keys[] = ['name' => (string) $name, 'configured' => $check->fingerprint !== '', 'check' => self::checkBody($check)];
             }
-            if ($check->errorCode !== null) {
-                $c['error_code'] = $check->errorCode;
-            }
-            $body['api_key_check'] = $c;
+            $body['api_keys'] = $keys;
+        } elseif ($state->keyCheck !== null) {
+            $body['api_key_configured'] = $state->keyCheck->fingerprint !== '';
+            $body['api_key_check'] = self::checkBody($state->keyCheck);
         }
         if ($this->callbackUrl !== null && $this->callbackUrl !== '') {
             $body['callback'] = ['url' => $this->callbackUrl];
@@ -243,11 +290,91 @@ final class InstallationReporter
         if ($state->reportedVersions !== $this->versions()) {
             return self::EVENT_UPGRADED;
         }
+        if ($state->keyChecks !== null) {
+            $reported = $state->reportedKeyStatuses ?? [];
+            if (\count($reported) !== \count($state->keyChecks)) {
+                return self::EVENT_API_KEY_CHECK;
+            }
+            foreach ($state->keyChecks as $name => $check) {
+                if (($reported[$name] ?? null) !== $check->status) {
+                    return self::EVENT_API_KEY_CHECK;
+                }
+            }
+
+            return null;
+        }
         if ($state->keyCheck !== null && $state->keyCheck->status !== $state->reportedKeyStatus) {
             return self::EVENT_API_KEY_CHECK;
         }
 
         return null;
+    }
+
+    /**
+     * The state with fresh checks: always ($force), else only for keys that are new or changed.
+     *
+     * @param string|array<string, string> $apiKeys
+     */
+    private function withChecks(ReporterState $state, #[\SensitiveParameter] string|array $apiKeys, bool $force): ReporterState
+    {
+        if (\is_string($apiKeys)) {
+            if (!$force && $state->keyChecks === null && $state->keyCheck !== null && $state->keyCheck->fingerprint === $this->fingerprint($apiKeys)) {
+                return $state;
+            }
+
+            // Coming from several keys: report the single key even if its status is the one reported before.
+            return new ReporterState($state->reportedVersions, $state->keyChecks !== null ? null : $state->reportedKeyStatus, $state->lastFailureAt, $this->check($apiKeys));
+        }
+        $keyChecks = [];
+        foreach (self::namedKeys($apiKeys) as $name => $key) {
+            $old = $state->keyChecks[$name] ?? null;
+            $keyChecks[$name] = !$force && $old !== null && $old->fingerprint === $this->fingerprint($key) ? $old : $this->check($key);
+        }
+
+        return new ReporterState($state->reportedVersions, $state->reportedKeyStatus, $state->lastFailureAt, null, $keyChecks, $state->reportedKeyStatuses);
+    }
+
+    /**
+     * The named keys (at most MAX_API_KEYS, names trimmed, blank and repeated names dropped).
+     *
+     * @param array<array-key, mixed> $apiKeys
+     *
+     * @return array<string, string>
+     */
+    private static function namedKeys(#[\SensitiveParameter] array $apiKeys): array
+    {
+        $out = [];
+        foreach ($apiKeys as $raw => $key) {
+            $name = mb_substr(trim((string) $raw), 0, 60);
+            if ($name === '' || \array_key_exists($name, $out)) {
+                continue;
+            }
+            $out[$name] = \is_string($key) ? $key : '';
+            if (\count($out) >= self::MAX_API_KEYS) {
+                break;
+            }
+        }
+
+        return $out;
+    }
+
+    private function invalid(#[\SensitiveParameter] string $apiKey, int $httpStatus): KeyCheck
+    {
+        return new KeyCheck(KeyCheck::INVALID, $this->timestamp(), $httpStatus, null, $this->fingerprint($apiKey));
+    }
+
+    /** @return array{status: string, checked_at: string, http_status?: int, error_code?: string} */
+    private static function checkBody(KeyCheck $check): array
+    {
+        $c = ['status' => $check->status, 'checked_at' => $check->checkedAt];
+        if ($check->httpStatus !== null) {
+            $c['http_status'] = $check->httpStatus;
+        }
+        if ($check->errorCode !== null) {
+            $c['error_code'] = $check->errorCode;
+        }
+
+        return $c;
     }
 
     private function check(#[\SensitiveParameter] string $apiKey): KeyCheck
@@ -276,12 +403,12 @@ final class InstallationReporter
     private function reportIfDue(ReporterState $state, ?string $event): ReporterResult
     {
         if ($event === null || !$this->enabled) {
-            return new ReporterResult($state, $state->keyCheck, null, false);
+            return new ReporterResult($state, $state->keyCheck, null, false, $state->keyChecks);
         }
         if ($state->lastFailureAt !== null) {
             $failed = strtotime($state->lastFailureAt);
             if ($failed !== false && ($this->now)() - $failed < self::FAILURE_BACKOFF) {
-                return new ReporterResult($state, $state->keyCheck, null, false);
+                return new ReporterResult($state, $state->keyCheck, null, false, $state->keyChecks);
             }
         }
 
@@ -291,7 +418,7 @@ final class InstallationReporter
     private function send(ReporterState $state, string $event): ReporterResult
     {
         if (!$this->enabled) {
-            return new ReporterResult($state, $state->keyCheck, null, false);
+            return new ReporterResult($state, $state->keyCheck, null, false, $state->keyChecks);
         }
         $ok = false;
         try {
@@ -308,10 +435,17 @@ final class InstallationReporter
             $ok = false;
         }
         $next = $ok
-            ? new ReporterState($this->versions(), $state->keyCheck->status ?? $state->reportedKeyStatus, null, $state->keyCheck)
-            : new ReporterState($state->reportedVersions, $state->reportedKeyStatus, $this->timestamp(), $state->keyCheck);
+            ? new ReporterState(
+                $this->versions(),
+                $state->keyCheck->status ?? $state->reportedKeyStatus,
+                null,
+                $state->keyCheck,
+                $state->keyChecks,
+                $state->keyChecks === null ? $state->reportedKeyStatuses : array_map(static fn (KeyCheck $c): string => $c->status, $state->keyChecks),
+            )
+            : new ReporterState($state->reportedVersions, $state->reportedKeyStatus, $this->timestamp(), $state->keyCheck, $state->keyChecks, $state->reportedKeyStatuses);
 
-        return new ReporterResult($next, $next->keyCheck, $event, $ok);
+        return new ReporterResult($next, $next->keyCheck, $event, $ok, $next->keyChecks);
     }
 
     private function timestamp(): string

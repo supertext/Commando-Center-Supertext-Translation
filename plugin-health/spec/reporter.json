@@ -1,7 +1,7 @@
 {
-  "description": "Supertext Plugin Health: the reporter's state machine and report bodies, the reporting setting and the ping endpoint's answer. Protocol: ../../docs/DEVELOPER.md → Report protocol (the center's spec/ files are its schema and examples). 'defaults': report URL, report timeout, failure backoff. 'enabled': the reporting setting (null = not set, default on) and SUPERTEXT_VERSION_REPORTS (0/false/off/no turns it off, 1/true/on/yes on, anything else or unset leaves the setting). 'ping': the answer of the plugin's ping endpoint (JSON body compared parsed; headers Content-Type: application/json and Cache-Control: no-store on every answer). 'fingerprints': what the plugin's key checker returns as fingerprint for each API key in the scenarios (the SDK computes it: SHA-256 of the key); tests use this table instead of hashing. 'scenarios': the reporter's state machine. The plugin passes a key checker (the SDK's checkApiKey and apiKeyFingerprint); the reporter never talks to Supertext itself. The state is a JSON object the plugin stores as it is: reportedVersions ('<plugin>|<system>|<runtime>' versions last reported, missing parts empty), reportedKeyStatus (key status last reported), lastFailureAt (time of the last failed report), keyCheck (the latest check with the key's fingerprint). Times are UTC ISO 8601 without fractions ('2026-10-13T08:00:00Z'). Actions: afterSettingsSaved (always checks the key; reports installed if never reported, else settings_saved); onRequest (checks the key only if its fingerprint differs from keyCheck's; then reports installed if never reported, upgraded if the versions changed, api_key_check if the key status differs from reportedKeyStatus, else nothing); authenticationFailed (sets the check to invalid with the given HTTP status, checkedAt now, the key's fingerprint, without calling the checker, then like onRequest); testConnection (always checks the key, then like onRequest); reportCheck (always sends event check, ignoring the throttle). Reports go only when reporting is enabled and not within 3600 s after lastFailureAt (except reportCheck). A report is sent when the center answers 2xx; then reportedVersions and reportedKeyStatus are updated and lastFailureAt cleared; otherwise only lastFailureAt is set to now. The report body: schema 1, event, site_url, plugin, system, runtime, sdk_version, api_key_configured (fingerprint not empty), api_key_check (status, checked_at, http_status and error_code when set), callback.url when a callback URL is configured; fields compared parsed. A step's 'keyCheck' is what the key checker returns when the reporter calls it; 'report' is the center's answer to POST report (status, or transportError). expect.calls lists what was called, in order: keyCheck (the checker) and report (POST to the center).",
+  "description": "Supertext Plugin Health: the reporter's state machine and report bodies, the reporting setting and the ping endpoint's answer. Protocol: ../../docs/DEVELOPER.md → Report protocol (the center's spec/ files are its schema and examples). 'defaults': report URL, report timeout, failure backoff. 'enabled': the reporting setting (null = not set, default on) and SUPERTEXT_VERSION_REPORTS (0/false/off/no turns it off, 1/true/on/yes on, anything else or unset leaves the setting). 'ping': the answer of the plugin's ping endpoint (JSON body compared parsed; headers Content-Type: application/json and Cache-Control: no-store on every answer). 'fingerprints': what the plugin's key checker returns as fingerprint for each API key in the scenarios (the SDK computes it: SHA-256 of the key); tests use this table instead of hashing. 'scenarios': the reporter's state machine. The plugin passes a key checker (the SDK's checkApiKey and apiKeyFingerprint); the reporter never talks to Supertext itself. The state is a JSON object the plugin stores as it is: reportedVersions ('<plugin>|<system>|<runtime>' versions last reported, missing parts empty), reportedKeyStatus (key status last reported), lastFailureAt (time of the last failed report), keyCheck (the latest check with the key's fingerprint), and for plugins with several keys keyChecks (the latest check per key name, in the plugin's order) and reportedKeyStatuses (the statuses last reported, by name); with several keys keyCheck is null, with one key keyChecks and reportedKeyStatuses are null. Times are UTC ISO 8601 without fractions ('2026-10-13T08:00:00Z'). Actions: afterSettingsSaved (always checks the key; reports installed if never reported, else settings_saved); onRequest (checks the key only if its fingerprint differs from keyCheck's; then reports installed if never reported, upgraded if the versions changed, api_key_check if the key status differs from reportedKeyStatus, else nothing); authenticationFailed (sets the check to invalid with the given HTTP status, checkedAt now, the key's fingerprint, without calling the checker, then like onRequest); testConnection (always checks the key, then like onRequest); reportCheck (always sends event check, ignoring the throttle). Reports go only when reporting is enabled and not within 3600 s after lastFailureAt (except reportCheck). A report is sent when the center answers 2xx; then reportedVersions and reportedKeyStatus are updated and lastFailureAt cleared; otherwise only lastFailureAt is set to now. The report body: schema 1, event, site_url, plugin, system, runtime, sdk_version, api_key_configured (fingerprint not empty), api_key_check (status, checked_at, http_status and error_code when set), callback.url when a callback URL is configured; fields compared parsed. A step's 'keyCheck' is what the key checker returns when the reporter calls it; 'report' is the center's answer to POST report (status, or transportError). expect.calls lists what was called, in order: keyCheck (the checker) and report (POST to the center). Several keys: a step has 'apiKeys' ({name: key}, in order) instead of 'apiKey' and 'keyChecks' (what the checker returns, one per call in order) instead of 'keyCheck'; the reporter checks each key whose fingerprint differs from its stored check (afterSettingsSaved and testConnection: every key), sends api_keys [{name, configured, check}] instead of api_key_configured and api_key_check, and reports api_key_check when any key's status differs from reportedKeyStatuses or the set of names changed. authenticationFailed takes 'keyName': only that key becomes invalid (without a name: all). expect.check is null and expect.checks the per-key checks; with one key expect.checks is null.",
   "defaults": {
-    "reportUrl": "https://commandocenter-production.up.railway.app/api/v1/report",
+    "reportUrl": "https://pluginhealth.supertext.com/api/v1/report",
     "reportTimeoutSeconds": 3,
     "failureBackoffSeconds": 3600
   },
@@ -200,7 +200,9 @@
         "reportedVersions": null,
         "reportedKeyStatus": null,
         "lastFailureAt": null,
-        "keyCheck": null
+        "keyCheck": null,
+        "keyChecks": null,
+        "reportedKeyStatuses": null
       },
       "steps": [
         {
@@ -237,7 +239,9 @@
                 "httpStatus": 200,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "reportBody": {
               "schema": 1,
@@ -269,7 +273,8 @@
             "calls": [
               "keyCheck",
               "report"
-            ]
+            ],
+            "checks": null
           }
         },
         {
@@ -296,9 +301,12 @@
                 "httpStatus": 200,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
-            "calls": []
+            "calls": [],
+            "checks": null
           }
         },
         {
@@ -335,7 +343,9 @@
                 "httpStatus": 200,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "reportBody": {
               "schema": 1,
@@ -367,7 +377,8 @@
             "calls": [
               "keyCheck",
               "report"
-            ]
+            ],
+            "checks": null
           }
         }
       ]
@@ -384,7 +395,9 @@
           "httpStatus": 200,
           "errorCode": null,
           "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-        }
+        },
+        "keyChecks": null,
+        "reportedKeyStatuses": null
       },
       "steps": [
         {
@@ -414,7 +427,9 @@
                 "httpStatus": 200,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "reportBody": {
               "schema": 1,
@@ -445,7 +460,8 @@
             },
             "calls": [
               "report"
-            ]
+            ],
+            "checks": null
           }
         }
       ]
@@ -459,7 +475,9 @@
         "reportedVersions": null,
         "reportedKeyStatus": null,
         "lastFailureAt": null,
-        "keyCheck": null
+        "keyCheck": null,
+        "keyChecks": null,
+        "reportedKeyStatuses": null
       },
       "steps": [
         {
@@ -493,11 +511,14 @@
                 "httpStatus": 200,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "calls": [
               "keyCheck"
-            ]
+            ],
+            "checks": null
           }
         },
         {
@@ -524,9 +545,12 @@
                 "httpStatus": 200,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
-            "calls": []
+            "calls": [],
+            "checks": null
           }
         }
       ]
@@ -537,7 +561,9 @@
         "reportedVersions": null,
         "reportedKeyStatus": null,
         "lastFailureAt": null,
-        "keyCheck": null
+        "keyCheck": null,
+        "keyChecks": null,
+        "reportedKeyStatuses": null
       },
       "steps": [
         {
@@ -574,12 +600,15 @@
                 "httpStatus": 200,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "calls": [
               "keyCheck",
               "report"
-            ]
+            ],
+            "checks": null
           }
         },
         {
@@ -606,9 +635,12 @@
                 "httpStatus": 200,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
-            "calls": []
+            "calls": [],
+            "checks": null
           }
         },
         {
@@ -638,11 +670,14 @@
                 "httpStatus": 200,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "calls": [
               "report"
-            ]
+            ],
+            "checks": null
           }
         },
         {
@@ -672,7 +707,9 @@
                 "httpStatus": 200,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "reportBody": {
               "schema": 1,
@@ -703,7 +740,8 @@
             },
             "calls": [
               "report"
-            ]
+            ],
+            "checks": null
           }
         }
       ]
@@ -720,7 +758,9 @@
           "httpStatus": 200,
           "errorCode": null,
           "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-        }
+        },
+        "keyChecks": null,
+        "reportedKeyStatuses": null
       },
       "steps": [
         {
@@ -757,7 +797,9 @@
                 "httpStatus": 401,
                 "errorCode": "INVALID_API_KEY",
                 "fingerprint": "015f7e6bc5aeaf483724089e9252cc13b50951a6b69412522765cff4d780306e"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "reportBody": {
               "schema": 1,
@@ -790,7 +832,8 @@
             "calls": [
               "keyCheck",
               "report"
-            ]
+            ],
+            "checks": null
           }
         }
       ]
@@ -807,7 +850,9 @@
           "httpStatus": 200,
           "errorCode": null,
           "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-        }
+        },
+        "keyChecks": null,
+        "reportedKeyStatuses": null
       },
       "steps": [
         {
@@ -841,11 +886,14 @@
                 "httpStatus": 200,
                 "errorCode": null,
                 "fingerprint": "015f7e6bc5aeaf483724089e9252cc13b50951a6b69412522765cff4d780306e"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "calls": [
               "keyCheck"
-            ]
+            ],
+            "checks": null
           }
         }
       ]
@@ -862,7 +910,9 @@
           "httpStatus": 200,
           "errorCode": null,
           "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-        }
+        },
+        "keyChecks": null,
+        "reportedKeyStatuses": null
       },
       "steps": [
         {
@@ -893,7 +943,9 @@
                 "httpStatus": 403,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "reportBody": {
               "schema": 1,
@@ -924,7 +976,8 @@
             },
             "calls": [
               "report"
-            ]
+            ],
+            "checks": null
           }
         },
         {
@@ -952,9 +1005,12 @@
                 "httpStatus": 403,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
-            "calls": []
+            "calls": [],
+            "checks": null
           }
         }
       ]
@@ -965,7 +1021,9 @@
         "reportedVersions": null,
         "reportedKeyStatus": null,
         "lastFailureAt": null,
-        "keyCheck": null
+        "keyCheck": null,
+        "keyChecks": null,
+        "reportedKeyStatuses": null
       },
       "steps": [
         {
@@ -1002,7 +1060,9 @@
                 "httpStatus": null,
                 "errorCode": null,
                 "fingerprint": ""
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "reportBody": {
               "schema": 1,
@@ -1033,7 +1093,8 @@
             "calls": [
               "keyCheck",
               "report"
-            ]
+            ],
+            "checks": null
           }
         }
       ]
@@ -1050,7 +1111,9 @@
           "httpStatus": 200,
           "errorCode": null,
           "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-        }
+        },
+        "keyChecks": null,
+        "reportedKeyStatuses": null
       },
       "steps": [
         {
@@ -1084,11 +1147,14 @@
                 "httpStatus": 200,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "calls": [
               "keyCheck"
-            ]
+            ],
+            "checks": null
           }
         }
       ]
@@ -1105,7 +1171,9 @@
           "httpStatus": 200,
           "errorCode": null,
           "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-        }
+        },
+        "keyChecks": null,
+        "reportedKeyStatuses": null
       },
       "steps": [
         {
@@ -1135,7 +1203,9 @@
                 "httpStatus": 200,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "reportBody": {
               "schema": 1,
@@ -1166,7 +1236,8 @@
             },
             "calls": [
               "report"
-            ]
+            ],
+            "checks": null
           }
         }
       ]
@@ -1183,7 +1254,9 @@
           "httpStatus": 200,
           "errorCode": null,
           "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-        }
+        },
+        "keyChecks": null,
+        "reportedKeyStatuses": null
       },
       "steps": [
         {
@@ -1220,7 +1293,9 @@
                 "httpStatus": null,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "reportBody": {
               "schema": 1,
@@ -1251,7 +1326,8 @@
             "calls": [
               "keyCheck",
               "report"
-            ]
+            ],
+            "checks": null
           }
         }
       ]
@@ -1271,7 +1347,9 @@
           "httpStatus": 200,
           "errorCode": null,
           "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-        }
+        },
+        "keyChecks": null,
+        "reportedKeyStatuses": null
       },
       "steps": [
         {
@@ -1301,7 +1379,9 @@
                 "httpStatus": 200,
                 "errorCode": null,
                 "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
-              }
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
             },
             "reportBody": {
               "schema": 1,
@@ -1328,6 +1408,576 @@
               }
             },
             "calls": [
+              "report"
+            ],
+            "checks": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "several keys: each is checked and reported by name in api_keys; a changed key is checked again",
+      "state": {
+        "reportedVersions": null,
+        "reportedKeyStatus": null,
+        "lastFailureAt": null,
+        "keyCheck": null,
+        "keyChecks": null,
+        "reportedKeyStatuses": null
+      },
+      "steps": [
+        {
+          "action": "afterSettingsSaved",
+          "apiKeys": {
+            "AI translation": "k1",
+            "Professional orders": "k2"
+          },
+          "now": "2026-10-13T08:00:00Z",
+          "keyChecks": [
+            {
+              "status": "ok",
+              "checkedAt": "2026-10-13T08:00:00Z",
+              "httpStatus": 200,
+              "errorCode": null,
+              "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+            },
+            {
+              "status": "invalid",
+              "checkedAt": "2026-10-13T08:00:00Z",
+              "httpStatus": 401,
+              "errorCode": "UNAUTHORIZED",
+              "fingerprint": "015f7e6bc5aeaf483724089e9252cc13b50951a6b69412522765cff4d780306e"
+            }
+          ],
+          "report": {
+            "status": 202
+          },
+          "expect": {
+            "event": "installed",
+            "sent": true,
+            "check": null,
+            "checks": {
+              "AI translation": {
+                "status": "ok",
+                "checkedAt": "2026-10-13T08:00:00Z",
+                "httpStatus": 200,
+                "errorCode": null,
+                "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+              },
+              "Professional orders": {
+                "status": "invalid",
+                "checkedAt": "2026-10-13T08:00:00Z",
+                "httpStatus": 401,
+                "errorCode": "UNAUTHORIZED",
+                "fingerprint": "015f7e6bc5aeaf483724089e9252cc13b50951a6b69412522765cff4d780306e"
+              }
+            },
+            "state": {
+              "reportedVersions": "0.2.0|12.0.0|22.11.0",
+              "reportedKeyStatus": null,
+              "lastFailureAt": null,
+              "keyCheck": null,
+              "keyChecks": {
+                "AI translation": {
+                  "status": "ok",
+                  "checkedAt": "2026-10-13T08:00:00Z",
+                  "httpStatus": 200,
+                  "errorCode": null,
+                  "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+                },
+                "Professional orders": {
+                  "status": "invalid",
+                  "checkedAt": "2026-10-13T08:00:00Z",
+                  "httpStatus": 401,
+                  "errorCode": "UNAUTHORIZED",
+                  "fingerprint": "015f7e6bc5aeaf483724089e9252cc13b50951a6b69412522765cff4d780306e"
+                }
+              },
+              "reportedKeyStatuses": {
+                "AI translation": "ok",
+                "Professional orders": "invalid"
+              }
+            },
+            "reportBody": {
+              "schema": 1,
+              "event": "installed",
+              "site_url": "https://cms.example.ch",
+              "plugin": {
+                "name": "Directus-Supertext-Translation",
+                "version": "0.2.0"
+              },
+              "system": {
+                "name": "Directus",
+                "version": "12.0.0"
+              },
+              "runtime": {
+                "name": "Node.js",
+                "version": "22.11.0"
+              },
+              "sdk_version": "0.3.0",
+              "api_keys": [
+                {
+                  "name": "AI translation",
+                  "configured": true,
+                  "check": {
+                    "status": "ok",
+                    "checked_at": "2026-10-13T08:00:00Z",
+                    "http_status": 200
+                  }
+                },
+                {
+                  "name": "Professional orders",
+                  "configured": true,
+                  "check": {
+                    "status": "invalid",
+                    "checked_at": "2026-10-13T08:00:00Z",
+                    "http_status": 401,
+                    "error_code": "UNAUTHORIZED"
+                  }
+                }
+              ],
+              "callback": {
+                "url": "https://cms.example.ch/supertext/ping"
+              }
+            },
+            "calls": [
+              "keyCheck",
+              "keyCheck",
+              "report"
+            ]
+          }
+        },
+        {
+          "action": "onRequest",
+          "apiKeys": {
+            "AI translation": "k1",
+            "Professional orders": "k2"
+          },
+          "now": "2026-10-13T09:00:00Z",
+          "expect": {
+            "event": null,
+            "sent": false,
+            "check": null,
+            "checks": {
+              "AI translation": {
+                "status": "ok",
+                "checkedAt": "2026-10-13T08:00:00Z",
+                "httpStatus": 200,
+                "errorCode": null,
+                "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+              },
+              "Professional orders": {
+                "status": "invalid",
+                "checkedAt": "2026-10-13T08:00:00Z",
+                "httpStatus": 401,
+                "errorCode": "UNAUTHORIZED",
+                "fingerprint": "015f7e6bc5aeaf483724089e9252cc13b50951a6b69412522765cff4d780306e"
+              }
+            },
+            "state": {
+              "reportedVersions": "0.2.0|12.0.0|22.11.0",
+              "reportedKeyStatus": null,
+              "lastFailureAt": null,
+              "keyCheck": null,
+              "keyChecks": {
+                "AI translation": {
+                  "status": "ok",
+                  "checkedAt": "2026-10-13T08:00:00Z",
+                  "httpStatus": 200,
+                  "errorCode": null,
+                  "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+                },
+                "Professional orders": {
+                  "status": "invalid",
+                  "checkedAt": "2026-10-13T08:00:00Z",
+                  "httpStatus": 401,
+                  "errorCode": "UNAUTHORIZED",
+                  "fingerprint": "015f7e6bc5aeaf483724089e9252cc13b50951a6b69412522765cff4d780306e"
+                }
+              },
+              "reportedKeyStatuses": {
+                "AI translation": "ok",
+                "Professional orders": "invalid"
+              }
+            },
+            "calls": []
+          }
+        },
+        {
+          "action": "onRequest",
+          "apiKeys": {
+            "AI translation": "k1",
+            "Professional orders": "k1"
+          },
+          "now": "2026-10-13T10:00:00Z",
+          "keyChecks": [
+            {
+              "status": "ok",
+              "checkedAt": "2026-10-13T10:00:00Z",
+              "httpStatus": 200,
+              "errorCode": null,
+              "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+            }
+          ],
+          "report": {
+            "status": 202
+          },
+          "expect": {
+            "event": "api_key_check",
+            "sent": true,
+            "check": null,
+            "checks": {
+              "AI translation": {
+                "status": "ok",
+                "checkedAt": "2026-10-13T08:00:00Z",
+                "httpStatus": 200,
+                "errorCode": null,
+                "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+              },
+              "Professional orders": {
+                "status": "ok",
+                "checkedAt": "2026-10-13T10:00:00Z",
+                "httpStatus": 200,
+                "errorCode": null,
+                "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+              }
+            },
+            "state": {
+              "reportedVersions": "0.2.0|12.0.0|22.11.0",
+              "reportedKeyStatus": null,
+              "lastFailureAt": null,
+              "keyCheck": null,
+              "keyChecks": {
+                "AI translation": {
+                  "status": "ok",
+                  "checkedAt": "2026-10-13T08:00:00Z",
+                  "httpStatus": 200,
+                  "errorCode": null,
+                  "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+                },
+                "Professional orders": {
+                  "status": "ok",
+                  "checkedAt": "2026-10-13T10:00:00Z",
+                  "httpStatus": 200,
+                  "errorCode": null,
+                  "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+                }
+              },
+              "reportedKeyStatuses": {
+                "AI translation": "ok",
+                "Professional orders": "ok"
+              }
+            },
+            "reportBody": {
+              "schema": 1,
+              "event": "api_key_check",
+              "site_url": "https://cms.example.ch",
+              "plugin": {
+                "name": "Directus-Supertext-Translation",
+                "version": "0.2.0"
+              },
+              "system": {
+                "name": "Directus",
+                "version": "12.0.0"
+              },
+              "runtime": {
+                "name": "Node.js",
+                "version": "22.11.0"
+              },
+              "sdk_version": "0.3.0",
+              "api_keys": [
+                {
+                  "name": "AI translation",
+                  "configured": true,
+                  "check": {
+                    "status": "ok",
+                    "checked_at": "2026-10-13T08:00:00Z",
+                    "http_status": 200
+                  }
+                },
+                {
+                  "name": "Professional orders",
+                  "configured": true,
+                  "check": {
+                    "status": "ok",
+                    "checked_at": "2026-10-13T10:00:00Z",
+                    "http_status": 200
+                  }
+                }
+              ],
+              "callback": {
+                "url": "https://cms.example.ch/supertext/ping"
+              }
+            },
+            "calls": [
+              "keyCheck",
+              "report"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "several keys: a rejected translation marks only the key it used",
+      "state": {
+        "reportedVersions": "0.2.0|12.0.0|22.11.0",
+        "reportedKeyStatus": null,
+        "lastFailureAt": null,
+        "keyCheck": null,
+        "keyChecks": {
+          "AI translation": {
+            "status": "ok",
+            "checkedAt": "2026-10-13T08:00:00Z",
+            "httpStatus": 200,
+            "errorCode": null,
+            "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+          },
+          "Professional orders": {
+            "status": "ok",
+            "checkedAt": "2026-10-13T08:00:00Z",
+            "httpStatus": 200,
+            "errorCode": null,
+            "fingerprint": "015f7e6bc5aeaf483724089e9252cc13b50951a6b69412522765cff4d780306e"
+          }
+        },
+        "reportedKeyStatuses": {
+          "AI translation": "ok",
+          "Professional orders": "ok"
+        }
+      },
+      "steps": [
+        {
+          "action": "authenticationFailed",
+          "apiKeys": {
+            "AI translation": "k1",
+            "Professional orders": "k2"
+          },
+          "keyName": "Professional orders",
+          "httpStatus": 403,
+          "now": "2026-10-13T11:00:00Z",
+          "report": {
+            "status": 202
+          },
+          "expect": {
+            "event": "api_key_check",
+            "sent": true,
+            "check": null,
+            "checks": {
+              "AI translation": {
+                "status": "ok",
+                "checkedAt": "2026-10-13T08:00:00Z",
+                "httpStatus": 200,
+                "errorCode": null,
+                "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+              },
+              "Professional orders": {
+                "status": "invalid",
+                "checkedAt": "2026-10-13T11:00:00Z",
+                "httpStatus": 403,
+                "errorCode": null,
+                "fingerprint": "015f7e6bc5aeaf483724089e9252cc13b50951a6b69412522765cff4d780306e"
+              }
+            },
+            "state": {
+              "reportedVersions": "0.2.0|12.0.0|22.11.0",
+              "reportedKeyStatus": null,
+              "lastFailureAt": null,
+              "keyCheck": null,
+              "keyChecks": {
+                "AI translation": {
+                  "status": "ok",
+                  "checkedAt": "2026-10-13T08:00:00Z",
+                  "httpStatus": 200,
+                  "errorCode": null,
+                  "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+                },
+                "Professional orders": {
+                  "status": "invalid",
+                  "checkedAt": "2026-10-13T11:00:00Z",
+                  "httpStatus": 403,
+                  "errorCode": null,
+                  "fingerprint": "015f7e6bc5aeaf483724089e9252cc13b50951a6b69412522765cff4d780306e"
+                }
+              },
+              "reportedKeyStatuses": {
+                "AI translation": "ok",
+                "Professional orders": "invalid"
+              }
+            },
+            "reportBody": {
+              "schema": 1,
+              "event": "api_key_check",
+              "site_url": "https://cms.example.ch",
+              "plugin": {
+                "name": "Directus-Supertext-Translation",
+                "version": "0.2.0"
+              },
+              "system": {
+                "name": "Directus",
+                "version": "12.0.0"
+              },
+              "runtime": {
+                "name": "Node.js",
+                "version": "22.11.0"
+              },
+              "sdk_version": "0.3.0",
+              "api_keys": [
+                {
+                  "name": "AI translation",
+                  "configured": true,
+                  "check": {
+                    "status": "ok",
+                    "checked_at": "2026-10-13T08:00:00Z",
+                    "http_status": 200
+                  }
+                },
+                {
+                  "name": "Professional orders",
+                  "configured": true,
+                  "check": {
+                    "status": "invalid",
+                    "checked_at": "2026-10-13T11:00:00Z",
+                    "http_status": 403
+                  }
+                }
+              ],
+              "callback": {
+                "url": "https://cms.example.ch/supertext/ping"
+              }
+            },
+            "calls": [
+              "report"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "several keys: a blank key is reported as not configured",
+      "state": {
+        "reportedVersions": null,
+        "reportedKeyStatus": null,
+        "lastFailureAt": null,
+        "keyCheck": null,
+        "keyChecks": null,
+        "reportedKeyStatuses": null
+      },
+      "steps": [
+        {
+          "action": "afterSettingsSaved",
+          "apiKeys": {
+            "AI translation": "k1",
+            "Review": "  "
+          },
+          "now": "2026-10-13T08:00:00Z",
+          "keyChecks": [
+            {
+              "status": "ok",
+              "checkedAt": "2026-10-13T08:00:00Z",
+              "httpStatus": 200,
+              "errorCode": null,
+              "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+            },
+            {
+              "status": "missing",
+              "checkedAt": "2026-10-13T08:00:00Z",
+              "httpStatus": null,
+              "errorCode": null,
+              "fingerprint": ""
+            }
+          ],
+          "report": {
+            "status": 202
+          },
+          "expect": {
+            "event": "installed",
+            "sent": true,
+            "check": null,
+            "checks": {
+              "AI translation": {
+                "status": "ok",
+                "checkedAt": "2026-10-13T08:00:00Z",
+                "httpStatus": 200,
+                "errorCode": null,
+                "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+              },
+              "Review": {
+                "status": "missing",
+                "checkedAt": "2026-10-13T08:00:00Z",
+                "httpStatus": null,
+                "errorCode": null,
+                "fingerprint": ""
+              }
+            },
+            "state": {
+              "reportedVersions": "0.2.0|12.0.0|22.11.0",
+              "reportedKeyStatus": null,
+              "lastFailureAt": null,
+              "keyCheck": null,
+              "keyChecks": {
+                "AI translation": {
+                  "status": "ok",
+                  "checkedAt": "2026-10-13T08:00:00Z",
+                  "httpStatus": 200,
+                  "errorCode": null,
+                  "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+                },
+                "Review": {
+                  "status": "missing",
+                  "checkedAt": "2026-10-13T08:00:00Z",
+                  "httpStatus": null,
+                  "errorCode": null,
+                  "fingerprint": ""
+                }
+              },
+              "reportedKeyStatuses": {
+                "AI translation": "ok",
+                "Review": "missing"
+              }
+            },
+            "reportBody": {
+              "schema": 1,
+              "event": "installed",
+              "site_url": "https://cms.example.ch",
+              "plugin": {
+                "name": "Directus-Supertext-Translation",
+                "version": "0.2.0"
+              },
+              "system": {
+                "name": "Directus",
+                "version": "12.0.0"
+              },
+              "runtime": {
+                "name": "Node.js",
+                "version": "22.11.0"
+              },
+              "sdk_version": "0.3.0",
+              "api_keys": [
+                {
+                  "name": "AI translation",
+                  "configured": true,
+                  "check": {
+                    "status": "ok",
+                    "checked_at": "2026-10-13T08:00:00Z",
+                    "http_status": 200
+                  }
+                },
+                {
+                  "name": "Review",
+                  "configured": false,
+                  "check": {
+                    "status": "missing",
+                    "checked_at": "2026-10-13T08:00:00Z"
+                  }
+                }
+              ],
+              "callback": {
+                "url": "https://cms.example.ch/supertext/ping"
+              }
+            },
+            "calls": [
+              "keyCheck",
+              "keyCheck",
               "report"
             ]
           }

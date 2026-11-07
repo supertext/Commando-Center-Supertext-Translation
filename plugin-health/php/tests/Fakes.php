@@ -27,12 +27,12 @@ final class Fakes implements KeyChecker, HttpTransport
     public array $errors = [];
 
     /**
-     * @param array<string, mixed>|null $keyCheck     what check() returns; null: not expected
+     * @param array<array-key, mixed>|null $keyCheck  what check() returns (a list: one per call, in order); null: not expected
      * @param array<string, mixed>|null $report       the center's answer: ['status' => int] or ['transportError' => true]; null: not expected
      * @param array<string, string>     $fingerprints apiKey → fingerprint
      */
     public function __construct(
-        private readonly ?array $keyCheck,
+        private ?array $keyCheck,
         private readonly ?array $report,
         private readonly array $fingerprints,
     ) {
@@ -42,12 +42,18 @@ final class Fakes implements KeyChecker, HttpTransport
     public function check(#[\SensitiveParameter] string $apiKey): array
     {
         $this->calls[] = 'keyCheck';
-        if ($this->keyCheck === null) {
+        $next = $this->keyCheck;
+        if ($next !== null && array_is_list($next)) {
+            $next = array_shift($this->keyCheck);
+            $this->keyCheck = $this->keyCheck === [] ? null : $this->keyCheck;
+        }
+        if (!\is_array($next)) {
             $this->errors[] = 'unexpected key check';
             throw new \LogicException('unexpected key check');
         }
 
-        return $this->keyCheck;
+        /** @var array<string, mixed> $next */
+        return $next;
     }
 
     public function fingerprint(#[\SensitiveParameter] string $apiKey): string

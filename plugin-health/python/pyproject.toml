@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "supertext-plugin-health"
-version = "0.1.0"
+version = "0.2.0"
 description = "Supertext Plugin Health: version reports, API key check results and the reachability ping of Supertext plugins, for the Supertext Plugin Health dashboard."
 readme = "README.md"
 license = "MIT"
@@ -31,7 +31,7 @@ Issues = "https://github.com/Supertext/Commando-Center-Supertext-Translation/iss
 where = ["src"]
 
 [tool.setuptools.package-data]
-supertext_plugin_health = ["py.typed"]
+supertext_plugin_health = ["py.typed", "config.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -4,6 +4,19 @@ All five languages share one version. Changes not yet released go under *Unrelea
 
 ## Unreleased
 
+## 0.2.0 — 2026-11-07
+
+### Added
+
+- Several named API keys: every action takes one key as before or several by name (at most 20). Each key is checked when it changes and reported in the new report field `api_keys` (`[{name, configured, check}]`); `api_key_check` goes out when any key's status changes; `authenticationFailed` takes the name of the rejected key. New state fields `keyChecks` and `reportedKeyStatuses` (null with one key; states stored by 0.1 load unchanged), new result field `checks`, `MAX_API_KEYS`. Spec: three scenarios in `spec/reporter.json`.
+- `config.json`: the default report URL lives only in `plugin-health/config.json`; each language reads its bundled copy (`scripts/sync-config.sh`, checked in CI).
+
+### Changed
+
+- Default report URL: `https://pluginhealth.supertext.com/api/v1/report` (the dashboard's own domain; the Railway address keeps working for plugins on 0.1).
+- PHP: `InstallationReporter::DEFAULT_REPORT_URL` is now `InstallationReporter::defaultReportUrl()`; .NET: `Reporting.DefaultReportUrl` is a `static readonly` field instead of a `const`.
+- Bundling: the copy must include `config.json` (see README → *Bundling it in a plugin*).
+
 ## 0.1.0 — 2026-10-16
 
 ### Added

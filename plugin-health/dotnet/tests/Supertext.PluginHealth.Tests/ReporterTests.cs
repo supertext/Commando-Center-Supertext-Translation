@@ -101,12 +101,22 @@ public class ReporterTests
         {
             var action = step.Str("action")!;
             var calls = new List<string>();
-            var checker = FakeChecker(step.TryGetProperty("keyCheck", out var k) ? ReporterState.FromJson($$"""{"keyCheck":{{k.GetRawText()}}}""").KeyCheck : null, calls);
+            var stepChecks = step.TryGetProperty("keyChecks", out var ks)
+                ? ks.EnumerateArray().Select(c => ReporterState.FromJson($$"""{"keyCheck":{{c.GetRawText()}}}""").KeyCheck!).ToList()
+                : step.TryGetProperty("keyCheck", out var k) ? [ReporterState.FromJson($$"""{"keyCheck":{{k.GetRawText()}}}""").KeyCheck!] : [];
+            var checker = FakeCheckers(stepChecks, calls);
+            List<KeyValuePair<string, string>>? named = step.TryGetProperty("apiKeys", out var ak)
+                ? ak.EnumerateObject().Select(p => new KeyValuePair<string, string>(p.Name, p.Value.GetString()!)).ToList()
+                : null;
             var http = new FakeCenter(step.TryGetProperty("report", out var report) ? report : null, calls);
             var reporter = Reporter(config, http, new FixedTime(DateTimeOffset.Parse(step.Str("now")!)), checker);
             var apiKey = step.Str("apiKey");
             var r = action switch
             {
+                "afterSettingsSaved" when named is not null => await reporter.AfterSettingsSavedAsync(state, named),
+                "onRequest" when named is not null => await reporter.OnRequestAsync(state, named),
+                "authenticationFailed" when named is not null => await reporter.AuthenticationFailedAsync(state, named, step.GetProperty("httpStatus").GetInt32(), step.Str("keyName")),
+                "testConnection" when named is not null => await reporter.TestConnectionAsync(state, named),
                 "afterSettingsSaved" => await reporter.AfterSettingsSavedAsync(state, apiKey),
                 "onRequest" => await reporter.OnRequestAsync(state, apiKey),
                 "authenticationFailed" => await reporter.AuthenticationFailedAsync(state, apiKey, step.GetProperty("httpStatus").GetInt32()),
@@ -121,6 +131,9 @@ public class ReporterTests
             var expectedState = ReporterState.FromJson(expect.GetProperty("state"));
             Assert.Equal(expectedState, r.State);
             Assert.Equal(ReporterState.FromJson($$"""{"keyCheck":{{expect.GetProperty("check").GetRawText()}}}""").KeyCheck, r.Check);
+            Assert.Equal(
+                ReporterState.FromJson($$"""{"keyChecks":{{expect.GetProperty("checks").GetRawText()}}}""").KeyChecks?.Select(c => c.ToString()),
+                r.Checks?.Select(c => c.ToString()));
             // The stored form has exactly the spec's shape and survives a round trip.
             AssertJson(JsonNode.Parse(expect.GetProperty("state").GetRawText()), JsonNode.Parse(r.State.ToJson()));
             if (expect.TryGetProperty("reportBody", out var body))
@@ -213,7 +226,7 @@ public class ReporterTests
         Assert.Equal(ReporterState.Empty, ReporterState.FromJson((string?)null));
         Assert.Equal(ReporterState.Empty, ReporterState.FromJson("[1,2]"));
         Assert.Null(ReporterState.FromJson("""{"keyCheck":{"status":"ok"}}""").KeyCheck);
-        Assert.Equal("""{"reportedVersions":null,"reportedKeyStatus":null,"lastFailureAt":null,"keyCheck":null}""", ReporterState.Empty.ToJson());
+        Assert.Equal("""{"reportedVersions":null,"reportedKeyStatus":null,"lastFailureAt":null,"keyCheck":null,"keyChecks":null,"reportedKeyStatuses":null}""", ReporterState.Empty.ToJson());
     }
 
     [Fact]
@@ -222,7 +235,23 @@ public class ReporterTests
         const string old = """{"reportedVersions":"0.2.0|12.0.0|22.11.0","reportedKeyStatus":"ok","lastFailureAt":null,"keyCheck":{"status":"ok","checkedAt":"2026-10-13T08:00:00Z","httpStatus":200,"errorCode":null,"fingerprint":"abc"}}""";
         var state = ReporterState.FromJson(old);
         Assert.Equal(new ReporterState("0.2.0|12.0.0|22.11.0", "ok", null, new KeyCheck("ok", "2026-10-13T08:00:00Z", 200, null, "abc")), state);
-        Assert.Equal(old, state.ToJson());
+        Assert.Equal(old[..^1] + ",\"keyChecks\":null,\"reportedKeyStatuses\":null}", state.ToJson());
+    }
+
+    [Fact]
+    public async Task ChecksAtMostTwentyNamedKeys()
+    {
+        var calls = new List<string>();
+        var ok = new KeyCheck("ok", "2026-10-13T08:00:00Z", 200, null, "fp");
+        var http = new FakeCenter(Answer("""{"status":202}"""), calls);
+        var reporter = Reporter(Config(), http, new FixedTime(DateTimeOffset.Parse("2026-10-13T08:00:00Z")), KeyChecker.FromDelegates((_, _) => Task.FromResult(ok), _ => "fp"));
+        var keys = new List<KeyValuePair<string, string>> { new(" ", "x"), new("A ", "k1") };
+        keys.AddRange(Enumerable.Range(0, 25).Select(n => new KeyValuePair<string, string>($"Key {n}", "k1")));
+        keys.Add(new("A", "k2"));
+        var r = await reporter.AfterSettingsSavedAsync(null, keys);
+        Assert.Equal(20, r.Checks!.Count);
+        Assert.Equal("A", r.Checks[0].Name);
+        Assert.Equal(20, http.Bodies[0]!["api_keys"]!.AsArray().Count);
     }
 
     [Fact]
@@ -278,14 +307,23 @@ public class ReporterTests
     }
 
     /// <summary>Fake key checker: returns the step's keyCheck, fingerprints from the spec's table, records "keyCheck".</summary>
-    private static IKeyChecker FakeChecker(KeyCheck? stepCheck, List<string>? calls = null)
+    private static IKeyChecker FakeChecker(KeyCheck? stepCheck, List<string>? calls = null) =>
+        FakeCheckers(stepCheck is null ? [] : [stepCheck], calls, repeat: true);
+
+    /// <summary>Fake key checker returning the given checks one per call (the last one again with <paramref name="repeat"/>).</summary>
+    private static IKeyChecker FakeCheckers(List<KeyCheck> stepChecks, List<string>? calls = null, bool repeat = false)
     {
         var fingerprints = S.GetProperty("fingerprints");
+        var queue = new Queue<KeyCheck>(stepChecks);
         return KeyChecker.FromDelegates(
             (_, _) =>
             {
                 calls?.Add("keyCheck");
-                return stepCheck is null ? throw new InvalidOperationException("unexpected key check") : Task.FromResult(stepCheck);
+                if (queue.Count == 0)
+                {
+                    throw new InvalidOperationException("unexpected key check");
+                }
+                return Task.FromResult(repeat && queue.Count == 1 ? queue.Peek() : queue.Dequeue());
             },
             apiKey => fingerprints.TryGetProperty(apiKey ?? string.Empty, out var fp)
                 ? fp.GetString()!

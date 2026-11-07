@@ -108,12 +108,20 @@ const wp = (system, plugin, event, extra = {}) => ({
   ...extra,
 });
 // Each sample's API key check result, so the screenshots show every status:
-// ok, rejected (wrong key pasted, then fixed; a revoked key), unreachable, no key, not checked (older plugin).
+// ok, rejected (wrong key pasted, then fixed; a revoked key), unreachable, no key, not checked (older plugin),
+// and two named keys (WordPress).
 const samples = [
   wp('6.8.3', '2.0.0', 'installed', check('invalid', 9, { http_status: 401, error_code: 'INVALID_API_KEY' })),
   wp('6.8.3', '2.0.0', 'settings_saved', check('ok', 8, { http_status: 200 })),
   wp('6.9.0', '2.0.0', 'upgraded'),
   wp('6.9.0', '2.1.0', 'upgraded'),
+  // Plugin Health 0.2: the WordPress plugin reports its two keys by name.
+  wp('6.9.0', '2.1.0', 'settings_saved', {
+    api_keys: [
+      { name: 'AI translation', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+      { name: 'Professional orders', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+    ],
+  }),
   { event: 'settings_saved', site_url: 'https://staging.alpenblick-hotels.example.ch', plugin: { name: 'supertext-wordpress-polylang', version: '2.0.0' }, system: { name: 'WordPress', version: '6.8.3' }, runtime: { name: 'PHP', version: '8.2.20' }, api_key_configured: true, ...check('unreachable', 6), ...ping('http://staging.alpenblick-hotels.example.ch/wp-json/supertext/v1/ping') },
   { event: 'upgraded', site_url: 'https://www.bergbahnen-muster.example.ch/', plugin: { name: 'Typo3-Supertext-Translation', version: '0.3.0' }, system: { name: 'TYPO3', version: '13.4.2' }, runtime: { name: 'PHP', version: '8.3.12' }, sdk_version: '0.2.0', api_key_configured: true, ...check('ok', 5, { http_status: 200 }), ...ping('http://www.bergbahnen-muster.example.ch/?eID=supertext_ping') },
   { event: 'installed', site_url: 'https://shop.velo-beispiel.example.com/de/', plugin: { name: 'Magento-Supertext-Translation', version: '0.3.0' }, system: { name: 'Magento', version: '2.4.8' }, runtime: { name: 'PHP', version: '8.4.1' }, api_key_configured: false, ...check('missing', 4), ...ping('http://shop.velo-beispiel.example.com/supertext/ping') },

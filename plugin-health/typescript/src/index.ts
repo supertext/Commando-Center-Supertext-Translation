@@ -6,10 +6,17 @@
  * The reporter is stateless: the plugin loads its `ReporterState` (a plain JSON object), passes it
  * in, and stores the state it gets back. It never talks to Supertext itself: the plugin passes a
  * key checker built on the Supertext SDK (`client.checkApiKey()` and `apiKeyFingerprint()`).
+ *
+ * One key: pass it as a string (reported as api_key_configured and api_key_check). Several keys
+ * (e.g. AI translation and professional orders): pass `{ name: key }` in the order the settings show
+ * them; each is checked and reported by name in api_keys.
  */
 
-export const PLUGIN_HEALTH_VERSION = '0.1.0'
-export const DEFAULT_REPORT_URL = 'https://commandocenter-production.up.railway.app/api/v1/report'
+import config from './config.json' with { type: 'json' }
+
+export const PLUGIN_HEALTH_VERSION = '0.2.0'
+/** The live Plugin Health dashboard, from config.json (plugin-health/config.json). SUPERTEXT_REPORT_URL overrides it. */
+export const DEFAULT_REPORT_URL: string = config.reportUrl
 export const REPORT_TIMEOUT_MS = 3_000
 export const FAILURE_BACKOFF_MS = 3_600_000
 
@@ -39,16 +46,26 @@ export interface KeyChecker {
   fingerprint(apiKey: string): string
 }
 
+/** The plugin's API keys: one key as a string, or several by name (`{ 'AI translation': key, … }`, at most 20). */
+export type ApiKeys = string | Readonly<Record<string, string>>
+
+/** At most this many named keys are checked and reported; the rest are ignored. */
+export const MAX_API_KEYS = 20
+
 /** What the plugin stores between requests (as JSON, unchanged). */
 export interface ReporterState {
   /** `<plugin>|<system>|<runtime>` versions last reported successfully. */
   reportedVersions: string | null
-  /** The key status last reported successfully. */
+  /** The key status last reported successfully (one key). */
   reportedKeyStatus: string | null
   /** When the last report failed (no new attempt for an hour). */
   lastFailureAt: string | null
-  /** The latest key check. */
+  /** The latest key check (one key). */
   keyCheck: KeyCheck | null
+  /** Several keys: the latest check of each, by name, in the plugin's order; null with one key. */
+  keyChecks: Record<string, KeyCheck> | null
+  /** Several keys: the statuses last reported successfully, by name. */
+  reportedKeyStatuses: Record<string, string> | null
 }
 
 export interface NameVersion {
@@ -90,15 +107,24 @@ export interface ReporterOptions {
 export interface ReporterResult {
   /** Store this. */
   state: ReporterState
-  /** The latest key check (show it on the settings or status page). */
+  /** The latest key check (show it on the settings or status page); null with several keys. */
   check: KeyCheck | null
+  /** Several keys: the latest check of each, by name; null with one key. */
+  checks: Record<string, KeyCheck> | null
   /** The event that was reported (or tried); null when nothing was due. */
   event: ReportEvent | null
   /** Whether the center accepted the report. */
   sent: boolean
 }
 
-export const EMPTY_REPORTER_STATE: ReporterState = Object.freeze({ reportedVersions: null, reportedKeyStatus: null, lastFailureAt: null, keyCheck: null })
+export const EMPTY_REPORTER_STATE: ReporterState = Object.freeze({
+  reportedVersions: null,
+  reportedKeyStatus: null,
+  lastFailureAt: null,
+  keyCheck: null,
+  keyChecks: null,
+  reportedKeyStatuses: null,
+})
 
 /** A key check from any object with the KeyCheck fields (e.g. the SDK's ApiKeyCheck); null if it has none. */
 export function keyCheck(value: unknown): KeyCheck | null {
@@ -124,7 +150,42 @@ export function reporterState(value: unknown): ReporterState {
   }
   const o = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   const s = (v: unknown) => (typeof v === 'string' ? v : null)
-  return { reportedVersions: s(o.reportedVersions), reportedKeyStatus: s(o.reportedKeyStatus), lastFailureAt: s(o.lastFailureAt), keyCheck: keyCheck(o.keyCheck) }
+  const obj = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null)
+  let keyChecks: Record<string, KeyCheck> | null = null
+  const kc = obj(o.keyChecks)
+  if (kc) {
+    keyChecks = {}
+    for (const [name, value] of Object.entries(kc)) {
+      const c = keyCheck(value)
+      if (c) keyChecks[name] = c
+    }
+  }
+  let reportedKeyStatuses: Record<string, string> | null = null
+  const rk = obj(o.reportedKeyStatuses)
+  if (rk) {
+    reportedKeyStatuses = {}
+    for (const [name, value] of Object.entries(rk)) if (typeof value === 'string') reportedKeyStatuses[name] = value
+  }
+  return {
+    reportedVersions: s(o.reportedVersions),
+    reportedKeyStatus: s(o.reportedKeyStatus),
+    lastFailureAt: s(o.lastFailureAt),
+    keyCheck: keyCheck(o.keyCheck),
+    keyChecks,
+    reportedKeyStatuses,
+  }
+}
+
+/** The named keys as [name, key] pairs (at most MAX_API_KEYS, names trimmed, blank and repeated names dropped). */
+function namedKeys(apiKeys: Readonly<Record<string, string>>): [string, string][] {
+  const out: [string, string][] = []
+  for (const [raw, key] of Object.entries(apiKeys)) {
+    const name = raw.trim().slice(0, 60)
+    if (!name || out.some(([n]) => n === name)) continue
+    out.push([name, typeof key === 'string' ? key : ''])
+    if (out.length >= MAX_API_KEYS) break
+  }
+  return out
 }
 
 /**
@@ -180,31 +241,46 @@ export class InstallationReporter {
     return [this.#options.plugin.version, this.#options.system.version ?? '', this.#runtime().version ?? ''].join('|')
   }
 
-  /** After the plugin's settings were saved: checks the key, reports `installed` or `settings_saved`. */
-  async afterSettingsSaved(state: ReporterState | null, apiKey: string): Promise<ReporterResult> {
-    const current = { ...(state ?? EMPTY_REPORTER_STATE), keyCheck: await this.#check(apiKey) }
+  /** After the plugin's settings were saved: checks the key(s), reports `installed` or `settings_saved`. */
+  async afterSettingsSaved(state: ReporterState | null, apiKeys: ApiKeys): Promise<ReporterResult> {
+    const current = await this.#withChecks(state ?? EMPTY_REPORTER_STATE, apiKeys, true)
     return this.#reportIfDue(current, current.reportedVersions === null ? 'installed' : 'settings_saved')
   }
 
-  /** On back-end requests that run the plugin's code: checks a changed key, reports what changed. */
-  async onRequest(state: ReporterState | null, apiKey: string): Promise<ReporterResult> {
-    let current = state ?? EMPTY_REPORTER_STATE
-    if (current.keyCheck === null || current.keyCheck.fingerprint !== this.#options.keyChecker.fingerprint(apiKey)) {
-      current = { ...current, keyCheck: await this.#check(apiKey) }
+  /** On back-end requests that run the plugin's code: checks changed keys, reports what changed. */
+  async onRequest(state: ReporterState | null, apiKeys: ApiKeys): Promise<ReporterResult> {
+    const current = await this.#withChecks(state ?? EMPTY_REPORTER_STATE, apiKeys, false)
+    return this.#reportIfDue(current, this.#dueEvent(current))
+  }
+
+  /**
+   * A translation was rejected with 401/403: the key is invalid (no check against Supertext). With
+   * several keys, `keyName` says which one (the others keep their result).
+   */
+  async authenticationFailed(state: ReporterState | null, apiKeys: ApiKeys, httpStatus = 401, keyName?: string | null): Promise<ReporterResult> {
+    const invalid = (key: string): KeyCheck => ({
+      status: 'invalid',
+      checkedAt: isoSeconds(this.#now()),
+      httpStatus,
+      errorCode: null,
+      fingerprint: this.#options.keyChecker.fingerprint(key),
+    })
+    const base = state ?? EMPTY_REPORTER_STATE
+    let current: ReporterState
+    if (typeof apiKeys === 'string') {
+      current = { ...base, keyCheck: invalid(apiKeys), keyChecks: null, reportedKeyStatuses: null, reportedKeyStatus: base.keyChecks !== null ? null : base.reportedKeyStatus }
+    } else {
+      current = await this.#withChecks(base, apiKeys, false)
+      const keyChecks = { ...(current.keyChecks ?? {}) }
+      for (const [name, key] of namedKeys(apiKeys)) if (keyName == null || name === keyName.trim()) keyChecks[name] = invalid(key)
+      current = { ...current, keyChecks }
     }
     return this.#reportIfDue(current, this.#dueEvent(current))
   }
 
-  /** A translation was rejected with 401/403: the key is invalid (no check against Supertext). */
-  async authenticationFailed(state: ReporterState | null, apiKey: string, httpStatus = 401): Promise<ReporterResult> {
-    const check: KeyCheck = { status: 'invalid', checkedAt: isoSeconds(this.#now()), httpStatus, errorCode: null, fingerprint: this.#options.keyChecker.fingerprint(apiKey) }
-    const current = { ...(state ?? EMPTY_REPORTER_STATE), keyCheck: check }
-    return this.#reportIfDue(current, this.#dueEvent(current))
-  }
-
-  /** The "Test connection" button: checks the key, reports a change. */
-  async testConnection(state: ReporterState | null, apiKey: string): Promise<ReporterResult> {
-    const current = { ...(state ?? EMPTY_REPORTER_STATE), keyCheck: await this.#check(apiKey) }
+  /** The "Test connection" button: checks the key(s), reports a change. */
+  async testConnection(state: ReporterState | null, apiKeys: ApiKeys): Promise<ReporterResult> {
+    const current = await this.#withChecks(state ?? EMPTY_REPORTER_STATE, apiKeys, true)
     return this.#reportIfDue(current, this.#dueEvent(current))
   }
 
@@ -225,13 +301,11 @@ export class InstallationReporter {
       runtime: nameVersion(this.#runtime()),
     }
     if (o.sdkVersion) body.sdk_version = o.sdkVersion
-    const check = state.keyCheck
-    if (check) {
-      body.api_key_configured = check.fingerprint !== ''
-      const c: Record<string, unknown> = { status: check.status, checked_at: check.checkedAt }
-      if (check.httpStatus !== null) c.http_status = check.httpStatus
-      if (check.errorCode !== null) c.error_code = check.errorCode
-      body.api_key_check = c
+    if (state.keyChecks) {
+      body.api_keys = Object.entries(state.keyChecks).map(([name, check]) => ({ name, configured: check.fingerprint !== '', check: checkBody(check) }))
+    } else if (state.keyCheck) {
+      body.api_key_configured = state.keyCheck.fingerprint !== ''
+      body.api_key_check = checkBody(state.keyCheck)
     }
     if (o.callbackUrl) body.callback = { url: o.callbackUrl }
     return body
@@ -244,8 +318,31 @@ export class InstallationReporter {
   #dueEvent(state: ReporterState): ReportEvent | null {
     if (state.reportedVersions === null) return 'installed'
     if (state.reportedVersions !== this.versions) return 'upgraded'
+    if (state.keyChecks !== null) {
+      const reported = state.reportedKeyStatuses ?? {}
+      const names = Object.keys(state.keyChecks)
+      if (names.length !== Object.keys(reported).length || names.some((n) => state.keyChecks![n]!.status !== reported[n])) return 'api_key_check'
+      return null
+    }
     if (state.keyCheck !== null && state.keyCheck.status !== state.reportedKeyStatus) return 'api_key_check'
     return null
+  }
+
+  /** The state with fresh checks: always (`force`), else only for keys that are new or changed. */
+  async #withChecks(state: ReporterState, apiKeys: ApiKeys, force: boolean): Promise<ReporterState> {
+    const fp = (key: string) => this.#options.keyChecker.fingerprint(key)
+    if (typeof apiKeys === 'string') {
+      if (!force && state.keyChecks === null && state.keyCheck !== null && state.keyCheck.fingerprint === fp(apiKeys)) return state
+      // Coming from several keys: report the single key even if its status is the one reported before.
+      const reportedKeyStatus = state.keyChecks !== null ? null : state.reportedKeyStatus
+      return { ...state, keyCheck: await this.#check(apiKeys), keyChecks: null, reportedKeyStatuses: null, reportedKeyStatus }
+    }
+    const keyChecks: Record<string, KeyCheck> = {}
+    for (const [name, key] of namedKeys(apiKeys)) {
+      const old = state.keyChecks?.[name]
+      keyChecks[name] = !force && old && old.fingerprint === fp(key) ? old : await this.#check(key)
+    }
+    return { ...state, keyCheck: null, keyChecks }
   }
 
   async #check(apiKey: string): Promise<KeyCheck> {
@@ -259,7 +356,7 @@ export class InstallationReporter {
   }
 
   async #reportIfDue(state: ReporterState, event: ReportEvent | null): Promise<ReporterResult> {
-    const idle = { state, check: state.keyCheck, event: null, sent: false }
+    const idle = { state, check: state.keyCheck, checks: state.keyChecks, event: null, sent: false }
     if (event === null || !this.#options.enabled) return idle
     if (state.lastFailureAt !== null) {
       const failed = Date.parse(state.lastFailureAt)
@@ -269,7 +366,7 @@ export class InstallationReporter {
   }
 
   async #send(state: ReporterState, event: ReportEvent): Promise<ReporterResult> {
-    if (!this.#options.enabled) return { state, check: state.keyCheck, event: null, sent: false }
+    if (!this.#options.enabled) return { state, check: state.keyCheck, checks: state.keyChecks, event: null, sent: false }
     let ok = false
     try {
       const response = await this.#fetch(this.reportUrl, {
@@ -288,15 +385,30 @@ export class InstallationReporter {
       ok = false // never fails the caller: the center is optional
     }
     const next: ReporterState = ok
-      ? { ...state, reportedVersions: this.versions, reportedKeyStatus: state.keyCheck?.status ?? state.reportedKeyStatus, lastFailureAt: null }
+      ? {
+          ...state,
+          reportedVersions: this.versions,
+          reportedKeyStatus: state.keyCheck?.status ?? state.reportedKeyStatus,
+          reportedKeyStatuses: state.keyChecks
+            ? Object.fromEntries(Object.entries(state.keyChecks).map(([name, check]) => [name, check.status]))
+            : state.reportedKeyStatuses,
+          lastFailureAt: null,
+        }
       : { ...state, lastFailureAt: isoSeconds(this.#now()) }
-    return { state: next, check: next.keyCheck, event, sent: ok }
+    return { state: next, check: next.keyCheck, checks: next.keyChecks, event, sent: ok }
   }
 }
 
 /** `2026-10-13T08:00:00Z` for a time in milliseconds. */
 export function isoSeconds(ms: number): string {
   return new Date(Math.floor(ms / 1000) * 1000).toISOString().replace('.000Z', 'Z')
+}
+
+function checkBody(check: KeyCheck): Record<string, unknown> {
+  const c: Record<string, unknown> = { status: check.status, checked_at: check.checkedAt }
+  if (check.httpStatus !== null) c.http_status = check.httpStatus
+  if (check.errorCode !== null) c.error_code = check.errorCode
+  return c
 }
 
 function nameVersion(value: NameVersion): Record<string, string> {

@@ -42,6 +42,8 @@ Each plugin checks its Supertext API key automatically when its settings are sav
 | **check failed** | Supertext answered with another error (status in brackets) | Look at the details on the installation page |
 | **not checked** | This plugin version doesn't send a key check yet | Recommend the plugin update |
 
+Some plugins use several API keys (the WordPress plugin, for example, one for AI translation and one for professional orders). The list then shows the worst of them, with "2 keys" next to it (hover to see each), and *API key problem* counts the installation if any key isn't ok. The installation page lists every key by the name the plugin gives it, each with its own result, and the history says which key changed.
+
 ### Reachable from the internet
 
 So that Supertext can call installations back later (for example "your translation is ready"), the dashboard pings each plugin from the internet: it calls the plugin's small public ping endpoint and checks that the plugin itself answers. It pings after a report (at most once a minute per site) and when you press **Ping now**.
