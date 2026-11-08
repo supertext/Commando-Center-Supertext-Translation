@@ -3,7 +3,7 @@ import { compareVersions, versionStatus } from '../../src/lib/semver';
 import { createSession, readSession, verifySession } from '../../src/lib/auth';
 import { RateLimiter, clientIp } from '../../src/lib/rate-limit';
 import { databaseUrls } from '../../src/lib/db-url.mjs';
-import { clearReleaseCache, latestRelease, releaseUrl } from '../../src/lib/releases';
+import { clearReleaseCache, latestRelease, releaseUrl, repoUrl } from '../../src/lib/releases';
 
 describe('compareVersions', () => {
   it.each([
@@ -127,8 +127,15 @@ describe('latestRelease', () => {
 
   it('builds release links only for X.Y.Z versions', () => {
     expect(releaseUrl('Typo3-Supertext-Translation', '0.4.0')).toBe(
-      'https://github.com/Supertext/Typo3-Supertext-Translation/releases/tag/v0.4.0',
+      'https://github.com/supertext/Typo3-Supertext-Translation/releases/tag/v0.4.0',
     );
     expect(releaseUrl('X', 'dev-main')).toBeNull();
+  });
+});
+
+describe('repoUrl', () => {
+  it('knows the WordPress plugin under its repository name', () => {
+    expect(repoUrl('supertext-wordpress-polylang')).toBe('https://github.com/supertext/wordpress-polylang');
+    expect(releaseUrl('supertext-wordpress-polylang', '0.14.0')).toBe('https://github.com/supertext/wordpress-polylang/releases/tag/v0.14.0');
   });
 });

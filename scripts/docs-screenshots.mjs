@@ -34,9 +34,9 @@ if (process.argv.includes('--ping-hosts')) {
 const BASE = (process.env.COMMANDO_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
 const OUT = new URL('../docs/images/', import.meta.url);
 
-// Stand-in for the GitHub releases API: the latest release per plugin.
+// Stand-in for the GitHub releases API: the latest release per repository.
 const RELEASES = {
-  'supertext-wordpress-polylang': '2.1.0',
+  'wordpress-polylang': '2.1.0',
   'Typo3-Supertext-Translation': '0.4.0',
   'Magento-Supertext-Translation': '0.3.0',
   'Strapi-Supertext-Translation': '0.2.0',

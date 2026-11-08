@@ -37,7 +37,7 @@ All settings are environment variables (Railway service variables).
 | `COMMANDO_OIDC_SCOPES` | no | `openid profile email custom.profile` | Scopes requested. `custom.profile` carries the `role` claim |
 | `COMMANDO_PUBLIC_URL` | no | from the request | The dashboard's public address (`https://pluginhealth.supertext.com`), used for the callback and sign-out addresses. Set it when the dashboard has a custom domain |
 | `GITHUB_TOKEN` | no | – | A GitHub token (no scopes needed for public repositories). Without it, the release lookup is limited to 60 GitHub API requests per hour, which is enough for normal use |
-| `GITHUB_OWNER` | no | `Supertext` | GitHub owner of the plugin repositories |
+| `GITHUB_OWNER` | no | `supertext` | GitHub owner of the plugin repositories (a plugin whose repository has another name than the plugin name it reports, like `supertext-wordpress-polylang` → `wordpress-polylang`, is mapped in `src/lib/releases.ts`) |
 | `COMMANDO_PROXY_URL` | no | – | Public base URL of the Supertext translation proxy, for the *Translation proxy* tab (e.g. `https://review-proxy.up.railway.app`) |
 | `COMMANDO_PROXY_TOKEN` | with `COMMANDO_PROXY_URL` | – | The proxy's `REVIEW_USAGE_TOKEN`. Keep it only in Railway's variables |
 | `COMMANDO_TIMEZONE` | no | `Europe/Zurich` | Time zone for dates in the UI |
