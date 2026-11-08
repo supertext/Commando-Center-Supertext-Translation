@@ -25,7 +25,7 @@ The start page lists every installation that has reported: one row per site URL 
 | **API key** | The result of the plugin's latest automatic key check (hover for the time and details), see below |
 | **Reachable** | Whether the dashboard reached the plugin from the internet with its last ping, see below |
 | **System** / **Runtime** | The CMS, shop or PIM with its version, and the PHP, Node.js, … version |
-| **Last report** | When the plugin last reported and why: *installed*, *settings saved*, *upgraded* (the plugin, the system or the runtime changed), *key checked* (the key check result changed, e.g. a translation was rejected) or *check* |
+| **Last report** | When the plugin last reported and why: *installed*, *settings saved*, *upgraded* (the plugin, the system or the runtime changed), *key checked* (the key check result changed, e.g. a translation was rejected), *plugins sent* (the site's administrator sent the list of installed plugins) or *check* |
 
 The counts at the top show how many installations there are, how many have a plugin update available, how many have an API key problem, how many aren't reachable from the internet, how many aren't mapped to a client yet, and how many reported in the last 30 days.
 
@@ -61,7 +61,7 @@ Hover a badge for the details and time. A site that isn't reachable still works 
 
 ### Filters
 
-Search by URL, client, system or notes; filter by plugin, client (or *Not mapped*), plugin version status, API key check and reachability. *Update available* answers "who still runs an old version?":
+Search by URL, client, system, notes or the name of an installed plugin (*WPML* finds every site that sent a list with WPML in it); filter by plugin, client (or *Not mapped*), plugin version status, API key check and reachability. *Update available* answers "who still runs an old version?":
 
 ![Installations filtered to Update available: only the sites with an outdated plugin version](images/installations-outdated.png)
 
@@ -85,7 +85,11 @@ Under **Reachable from the internet** you see the plugin's ping endpoint, the la
 
 ![Reachable from the internet: the ping endpoint, the last result with its time, the Ping now button and the last pings with trigger and result](images/installation-reachability.png)
 
-The **History** lists every report, newest first, with its key check result and what changed compared with the report before: *Plugin 2.0.0 → 2.1.0*, *WordPress 6.8.3 → 6.9.0*, *API key rejected → ok*. Reports sent after an update carry no key check; the installation keeps the result of the last check. A plugin reports when its settings are saved and after the plugin, the system or the runtime was updated (with the next back-end request after the update).
+Under **Installed plugins** you see the other plugins installed on the site (name, type, version, active or not), as the site's administrator last sent them. Plugins don't send this list on their own: the administrator presses *Send installed plugins to Supertext* in the Supertext plugin's settings, for example when you ask for it in a support case. *Not sent* means nobody has pressed it yet, or the plugin version doesn't have the button.
+
+![Installed plugins: the list a WordPress site sent, with name, type, version and whether each plugin is active](images/installation-extensions.png)
+
+The **History** lists every report, newest first, with its key check result and what changed compared with the report before: *Plugin 2.0.0 → 2.1.0*, *WordPress 6.8.3 → 6.9.0*, *API key rejected → ok*, and for a sent list of installed plugins what changed since the last one: *+ Yoast SEO 24.1*, *Polylang 3.6 → 3.7*, *Akismet deactivated*, *− WPML*. Reports sent after an update carry no key check; the installation keeps the result of the last check. A plugin reports when its settings are saved and after the plugin, the system or the runtime was updated (with the next back-end request after the update).
 
 ## Map installations to clients
 
@@ -121,6 +125,6 @@ If the tab says it isn't connected, `COMMANDO_PROXY_URL` and `COMMANDO_PROXY_TOK
 
 ## What the plugins send
 
-The site URL, the plugin, system and runtime versions, the SDK version, whether an API key is set, the result of the key check and the address of the plugin's ping endpoint. No content, no API keys and no personal data. Administrators can turn reporting off in each plugin's settings (*Send version information to Supertext*); a site that turned it off stops reporting, and its last report stays in the dashboard.
+The site URL, the plugin, system and runtime versions, the SDK version, whether an API key is set, the result of the key check and the address of the plugin's ping endpoint; the list of installed plugins only when an administrator presses the button. No content, no API keys and no personal data. Administrators can turn reporting off in each plugin's settings (*Send version information to Supertext*); a site that turned it off stops reporting, and its last report stays in the dashboard.
 
 Anyone who knows the address could send a report, so treat the data as information for support, not as proof.

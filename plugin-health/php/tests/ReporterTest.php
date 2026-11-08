@@ -117,6 +117,7 @@ final class ReporterTest extends TestCase
             reportUrl: self::REPORT_URL,
             transport: $center,
             now: $now === null ? null : static fn (): float => $now,
+            extensions: isset($config['extensions']) && \is_array($config['extensions']) ? static fn (): array => (array) $config['extensions'] : null,
         );
     }
 
@@ -233,6 +234,7 @@ final class ReporterTest extends TestCase
                 'authenticationFailed' => $reporter->authenticationFailed($state, $apiKey, \is_int($step['httpStatus']) ? $step['httpStatus'] : 401, isset($step['keyName']) ? self::str($step['keyName']) : null),
                 'testConnection' => $reporter->testConnection($state, $apiKey),
                 'reportCheck' => $reporter->reportCheck($state),
+                'sendExtensions' => $reporter->sendExtensions($state, \is_array($step['extensions']) ? $step['extensions'] : []),
                 default => self::fail('unknown action ' . $action),
             };
             $expect = self::map($step['expect']);
@@ -495,6 +497,38 @@ final class ReporterTest extends TestCase
         } finally {
             putenv('SUPERTEXT_REPORT_URL');
         }
+    }
+
+    public function testAtMostFiveHundredExtensionsAndCutLongNames(): void
+    {
+        $list = [['name' => str_repeat('x', 150), 'version' => str_repeat('v', 80), 'type' => str_repeat('P', 40)]];
+        for ($n = 0; $n < 520; ++$n) {
+            $list[] = ['name' => 'Plugin ' . $n, 'version' => '1.0'];
+        }
+        $out = InstallationReporter::normalizeExtensions($list);
+        self::assertCount(500, $out);
+        self::assertSame(['name' => str_repeat('x', 100), 'version' => str_repeat('v', 50), 'type' => str_repeat('p', 30)], $out[0]);
+        self::assertSame([['name' => 'Über', 'type' => 'thème']], InstallationReporter::normalizeExtensions([['name' => 'Über', 'type' => 'THÈME'], 'junk', ['name' => 'über', 'type' => 'thème']]));
+    }
+
+    public function testAThrowingExtensionsFunctionLeavesTheListOut(): void
+    {
+        $fakes = new Fakes(null, ['status' => 202], self::fingerprints());
+        $reporter = new InstallationReporter(
+            enabled: true,
+            siteUrl: 'https://cms.example.ch',
+            pluginName: 'X',
+            pluginVersion: '1.0.0',
+            systemName: 'Y',
+            keyChecker: $fakes,
+            reportUrl: self::REPORT_URL,
+            transport: $fakes,
+            extensions: static fn (): array => throw new \RuntimeException('boom'),
+        );
+        self::assertTrue($reporter->reportCheck(null)->sent);
+        $body = json_decode((string) $fakes->reports[0]->body, true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($body);
+        self::assertArrayNotHasKey('extensions', $body);
     }
 
     public function testAtMostTwentyNamedKeys(): void

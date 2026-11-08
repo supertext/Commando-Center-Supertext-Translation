@@ -26,6 +26,7 @@ from supertext_plugin_health import (
     NameVersion,
     ReporterResult,
     ReporterState,
+    normalize_extensions,
     parse_iso,
     ping_response,
     reporter_state,
@@ -119,6 +120,7 @@ def reporter(config: dict[str, Any], fakes: Fakes, now: float = 0.0, **overrides
         "report_url": REPORT_URL,
         "transport": fakes,
         "now": lambda: now,
+        "extensions": (lambda: config["extensions"]) if config.get("extensions") is not None else None,
         **overrides,
     }
     return InstallationReporter(**options)
@@ -196,6 +198,8 @@ def run(r: InstallationReporter, step: dict[str, Any], state: ReporterState) -> 
         return r.authentication_failed(state, keys, step["httpStatus"], step.get("keyName"))
     if action == "testConnection":
         return r.test_connection(state, keys)
+    if action == "sendExtensions":
+        return r.send_extensions(state, step["extensions"])
     assert action == "reportCheck"
     return r.report_check(state)
 
@@ -383,3 +387,24 @@ def test_detects_the_runtime() -> None:
     config = {**S["config"], "runtime": None}
     body = reporter(config, Fakes(None, None)).build_report("check", None)
     assert body["runtime"] == {"name": "Python", "version": platform.python_version()}
+
+
+def test_at_most_500_extensions_and_long_names_cut() -> None:
+    listed = [{"name": "x" * 150, "version": "v" * 80, "type": "P" * 40}]
+    listed += [{"name": f"Plugin {n}", "version": "1.0"} for n in range(520)]
+    out = normalize_extensions(listed)
+    assert len(out) == 500
+    assert out[0] == {"name": "x" * 100, "version": "v" * 50, "type": "p" * 30}
+    assert normalize_extensions([{"name": "Über", "type": "THÈME"}, "junk", {"name": "über", "type": "thème"}]) == [  # type: ignore[list-item]
+        {"name": "Über", "type": "thème"}
+    ]
+
+
+def test_a_failing_extensions_function_leaves_the_list_out() -> None:
+    def boom() -> list[dict[str, Any]]:
+        raise RuntimeError("boom")
+
+    fakes = Fakes(None, {"status": 202})
+    result = reporter(S["config"], fakes, extensions=boom).report_check(None)
+    assert result.sent is True
+    assert "extensions" not in fakes.bodies[0]

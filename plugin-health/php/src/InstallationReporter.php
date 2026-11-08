@@ -51,9 +51,13 @@ final class InstallationReporter
     public const EVENT_UPGRADED = 'upgraded';
     public const EVENT_API_KEY_CHECK = 'api_key_check';
     public const EVENT_CHECK = 'check';
+    public const EVENT_EXTENSIONS = 'extensions';
 
     /** At most this many named keys are checked and reported; the rest are ignored. */
     public const MAX_API_KEYS = 20;
+
+    /** At most this many installed plugins are sent; the rest are left out. */
+    public const MAX_EXTENSIONS = 500;
 
     private const CHALLENGE = '/^[A-Za-z0-9_-]{16,64}$/D';
 
@@ -67,6 +71,9 @@ final class InstallationReporter
 
     /** @var callable(): float */
     private $now;
+
+    /** @var (callable(): iterable<mixed>)|null */
+    private $extensions;
 
     /**
      * @param bool                     $enabled        the "Send version information to Supertext" setting combined with the environment: see reportsEnabled()
@@ -83,6 +90,8 @@ final class InstallationReporter
      * @param string|null              $reportUrl      default SUPERTEXT_REPORT_URL from the environment, else defaultReportUrl() (config.json)
      * @param HttpTransport|null       $transport      HTTP for the report; default CurlTransport
      * @param (callable(): float)|null $now            wall-clock Unix time in seconds (for tests)
+     * @param (callable(): iterable<mixed>)|null $extensions optional: returns the installed plugins (see sendExtensions()), so that
+     *                                                     every report carries them; leave it out to send them only by hand (the default)
      */
     public function __construct(
         private readonly bool $enabled,
@@ -99,6 +108,7 @@ final class InstallationReporter
         ?string $reportUrl = null,
         private readonly ?HttpTransport $transport = null,
         ?callable $now = null,
+        ?callable $extensions = null,
     ) {
         if ($runtimeName === null || $runtimeName === '') {
             $this->runtimeName = 'PHP';
@@ -114,6 +124,64 @@ final class InstallationReporter
             default => self::defaultReportUrl(),
         };
         $this->now = $now ?? static fn (): float => microtime(true);
+        $this->extensions = $extensions;
+    }
+
+    /**
+     * The installed plugins as they are sent: names and versions trimmed (100 and 50 characters), types in
+     * lower case (30), blank names and repeats (same type and name, ignoring case) dropped, at most MAX_EXTENSIONS.
+     *
+     * @param iterable<mixed> $extensions entries ['name' => 'Polylang Pro', 'version' => '3.7.2', 'active' => true, 'type' => 'plugin'];
+     *                                    only the name is required
+     *
+     * @return list<array{name: string, version?: string, active?: bool, type?: string}>
+     */
+    public static function normalizeExtensions(iterable $extensions): array
+    {
+        $out = [];
+        $seen = [];
+        foreach ($extensions as $e) {
+            if (\count($out) >= self::MAX_EXTENSIONS) {
+                break;
+            }
+            if (!\is_array($e) || !\is_string($e['name'] ?? null)) {
+                continue;
+            }
+            $name = self::cut(trim($e['name']), 100);
+            if ($name === '') {
+                continue;
+            }
+            $type = \is_string($e['type'] ?? null) ? self::cut(self::lower(trim($e['type'])), 30) : '';
+            $id = $type . "\0" . self::lower($name);
+            if (isset($seen[$id])) {
+                continue;
+            }
+            $seen[$id] = true;
+            $entry = ['name' => $name];
+            $version = \is_string($e['version'] ?? null) ? self::cut(trim($e['version']), 50) : '';
+            if ($version !== '') {
+                $entry['version'] = $version;
+            }
+            if (\is_bool($e['active'] ?? null)) {
+                $entry['active'] = $e['active'];
+            }
+            if ($type !== '') {
+                $entry['type'] = $type;
+            }
+            $out[] = $entry;
+        }
+
+        return $out;
+    }
+
+    private static function cut(string $value, int $length): string
+    {
+        return \function_exists('mb_substr') ? mb_substr($value, 0, $length, 'UTF-8') : substr($value, 0, $length);
+    }
+
+    private static function lower(string $value): string
+    {
+        return \function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
     }
 
     /**
@@ -248,11 +316,25 @@ final class InstallationReporter
     }
 
     /**
+     * The plugin's "Send installed plugins to Supertext" button: sends event `extensions` with the list now,
+     * even after a recent failure, but only while reporting is on (sent false otherwise).
+     *
+     * @param iterable<mixed> $extensions see normalizeExtensions()
+     */
+    public function sendExtensions(?ReporterState $state, iterable $extensions): ReporterResult
+    {
+        return $this->send($state ?? ReporterState::empty(), self::EVENT_EXTENSIONS, self::normalizeExtensions($extensions));
+    }
+
+    /**
      * The report body for an event and state.
+     *
+     * @param list<array{name: string, version?: string, active?: bool, type?: string}>|null $extensions the list to send;
+     *                                                                                               default: the extensions function's, if any
      *
      * @return array<string, mixed>
      */
-    public function buildReport(string $event, ReporterState $state): array
+    public function buildReport(string $event, ReporterState $state, ?array $extensions = null): array
     {
         $body = [
             'schema' => 1,
@@ -278,8 +360,25 @@ final class InstallationReporter
         if ($this->callbackUrl !== null && $this->callbackUrl !== '') {
             $body['callback'] = ['url' => $this->callbackUrl];
         }
+        $list = $extensions ?? $this->configuredExtensions();
+        if ($list !== null) {
+            $body['extensions'] = $list;
+        }
 
         return $body;
+    }
+
+    /** @return list<array{name: string, version?: string, active?: bool, type?: string}>|null */
+    private function configuredExtensions(): ?array
+    {
+        if ($this->extensions === null) {
+            return null;
+        }
+        try {
+            return self::normalizeExtensions(($this->extensions)());
+        } catch (\Throwable) {
+            return null; // never fails the report: the list is extra information
+        }
     }
 
     private function dueEvent(ReporterState $state): ?string
@@ -415,7 +514,8 @@ final class InstallationReporter
         return $this->send($state, $event);
     }
 
-    private function send(ReporterState $state, string $event): ReporterResult
+    /** @param list<array{name: string, version?: string, active?: bool, type?: string}>|null $extensions */
+    private function send(ReporterState $state, string $event, ?array $extensions = null): ReporterResult
     {
         if (!$this->enabled) {
             return new ReporterResult($state, $state->keyCheck, null, false, $state->keyChecks);
@@ -423,7 +523,7 @@ final class InstallationReporter
         $ok = false;
         try {
             $transport = $this->transport ?? new CurlTransport();
-            $body = json_encode($this->buildReport($event, $state), self::JSON | JSON_THROW_ON_ERROR);
+            $body = json_encode($this->buildReport($event, $state, $extensions), self::JSON | JSON_THROW_ON_ERROR);
             $response = $transport->send(new HttpRequest('POST', $this->reportUrl, [
                 'Content-Type' => 'application/json',
                 'Accept' => 'application/json',

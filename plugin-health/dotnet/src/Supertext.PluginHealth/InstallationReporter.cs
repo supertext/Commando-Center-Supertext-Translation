@@ -51,6 +51,12 @@ public sealed class ReporterOptions
 
     /// <summary>Clock. Default <see cref="TimeProvider.System"/>.</summary>
     public TimeProvider? TimeProvider { get; init; }
+
+    /// <summary>
+    /// Optional: returns the installed plugins, so that every report carries them. Leave it null to send them
+    /// only by hand (<see cref="InstallationReporter.SendExtensionsAsync"/>, the plugin's button): the default.
+    /// </summary>
+    public Func<IEnumerable<Extension?>>? Extensions { get; init; }
 }
 
 /// <summary>
@@ -90,6 +96,62 @@ public sealed class InstallationReporter
 
     /// <summary>At most this many named keys are checked and reported; the rest are ignored.</summary>
     public const int MaxApiKeys = 20;
+
+    /// <summary>At most this many installed plugins are sent; the rest are left out.</summary>
+    public const int MaxExtensions = 500;
+
+    /// <summary>
+    /// The installed plugins as they are sent: names and versions trimmed (100 and 50 characters), types in lower
+    /// case (30), blank names and repeats (same type and name, ignoring case) dropped, at most <see cref="MaxExtensions"/>.
+    /// </summary>
+    public static IReadOnlyList<Extension> NormalizeExtensions(IEnumerable<Extension?> extensions)
+    {
+        ArgumentNullException.ThrowIfNull(extensions);
+        var output = new List<Extension>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var e in extensions)
+        {
+            if (output.Count >= MaxExtensions)
+            {
+                break;
+            }
+            if (e?.Name is null)
+            {
+                continue;
+            }
+            var name = Cut(e.Name.Trim(), 100);
+            if (name.Length == 0)
+            {
+                continue;
+            }
+            var type = e.Type is null ? string.Empty : Cut(e.Type.Trim().ToLowerInvariant(), 30);
+            if (!seen.Add(type + "\0" + name.ToLowerInvariant()))
+            {
+                continue;
+            }
+            var version = e.Version is null ? string.Empty : Cut(e.Version.Trim(), 50);
+            output.Add(new Extension(name, version.Length == 0 ? null : version, e.Active, type.Length == 0 ? null : type));
+        }
+        return output;
+    }
+
+    private static string Cut(string value, int length)
+    {
+        if (value.Length <= length)
+        {
+            return value;
+        }
+        // Don't split a surrogate pair.
+        var cut = char.IsHighSurrogate(value[length - 1]) ? length - 1 : length;
+        return value[..cut];
+    }
+
+    /// <summary>
+    /// The plugin's "Send installed plugins to Supertext" button: sends event <c>extensions</c> with the list now,
+    /// even after a recent failure, but only while reporting is on (<c>Sent</c> false otherwise).
+    /// </summary>
+    public Task<ReporterResult> SendExtensionsAsync(ReporterState? state, IEnumerable<Extension?> extensions, CancellationToken cancellationToken = default) =>
+        SendAsync(state ?? ReporterState.Empty, ReportEvents.Extensions, cancellationToken, NormalizeExtensions(extensions));
 
     /// <summary>After the plugin's settings were saved: checks the key, reports <c>installed</c> or <c>settings_saved</c>.</summary>
     public Task<ReporterResult> AfterSettingsSavedAsync(ReporterState? state, string? apiKey, CancellationToken cancellationToken = default) =>
@@ -224,7 +286,10 @@ public sealed class InstallationReporter
         SendAsync(state ?? ReporterState.Empty, ReportEvents.Check, cancellationToken);
 
     /// <summary>The report body for an event (one of <see cref="ReportEvents"/>) and state.</summary>
-    public JsonObject BuildReport(string reportEvent, ReporterState state)
+    /// <param name="reportEvent">The event.</param>
+    /// <param name="state">The state.</param>
+    /// <param name="extensions">The installed plugins to send; default: those of <see cref="ReporterOptions.Extensions"/>, if set.</param>
+    public JsonObject BuildReport(string reportEvent, ReporterState state, IReadOnlyList<Extension>? extensions = null)
     {
         ArgumentNullException.ThrowIfNull(state);
         var body = new JsonObject
@@ -263,7 +328,45 @@ public sealed class InstallationReporter
         {
             body["callback"] = new JsonObject { ["url"] = options.CallbackUrl };
         }
+        if ((extensions ?? ConfiguredExtensions()) is { } list)
+        {
+            var array = new JsonArray();
+            foreach (var e in list)
+            {
+                var entry = new JsonObject { ["name"] = e.Name };
+                if (e.Version is not null)
+                {
+                    entry["version"] = e.Version;
+                }
+                if (e.Active is { } active)
+                {
+                    entry["active"] = active;
+                }
+                if (e.Type is not null)
+                {
+                    entry["type"] = e.Type;
+                }
+                array.Add(entry);
+            }
+            body["extensions"] = array;
+        }
         return body;
+    }
+
+    private IReadOnlyList<Extension>? ConfiguredExtensions()
+    {
+        if (options.Extensions is null)
+        {
+            return null;
+        }
+        try
+        {
+            return NormalizeExtensions(options.Extensions());
+        }
+        catch
+        {
+            return null; // Never fails the report: the list is extra information.
+        }
     }
 
     private string? DueEvent(ReporterState state)
@@ -352,7 +455,7 @@ public sealed class InstallationReporter
         return SendAsync(state, reportEvent, cancellationToken);
     }
 
-    private async Task<ReporterResult> SendAsync(ReporterState state, string reportEvent, CancellationToken cancellationToken)
+    private async Task<ReporterResult> SendAsync(ReporterState state, string reportEvent, CancellationToken cancellationToken, IReadOnlyList<Extension>? extensions = null)
     {
         if (!options.Enabled)
         {
@@ -363,7 +466,7 @@ public sealed class InstallationReporter
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(Reporting.ReportTimeout);
-            var content = new ByteArrayContent(Encoding.UTF8.GetBytes(BuildReport(reportEvent, state).ToJsonString()));
+            var content = new ByteArrayContent(Encoding.UTF8.GetBytes(BuildReport(reportEvent, state, extensions).ToJsonString()));
             content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
             using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(ReportUrl, UriKind.Absolute)) { Content = content };
             request.Headers.TryAddWithoutValidation("Accept", "application/json");

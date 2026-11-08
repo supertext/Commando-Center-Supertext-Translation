@@ -110,7 +110,7 @@ describe('report endpoint and store', () => {
   it('rejects non-JSON, oversized bodies and floods', async () => {
     expect((await post('not json', { 'x-forwarded-for': '198.51.100.9' })).status).toBe(400);
     expect((await post(base, { 'content-type': 'text/plain', 'x-forwarded-for': '198.51.100.9' })).status).toBe(415);
-    const big = { ...base, padding: 'x'.repeat(9000) };
+    const big = { ...base, padding: 'x'.repeat(70_000) };
     expect((await post(big, { 'x-forwarded-for': '198.51.100.9' })).status).toBe(413);
     const statuses: number[] = [];
     for (let k = 0; k < 62; k++) statuses.push((await post(base, { 'x-forwarded-for': '198.51.100.10' })).status);
@@ -168,6 +168,42 @@ describe('report endpoint and store', () => {
       const [last] = await store.installationHistory(i.id);
       expect(last.changed).toBe(true);
       expect(last.api_keys?.map((k) => k.status)).toEqual([null, 'ok']);
+    });
+  });
+
+  describe('installed plugins (extensions)', () => {
+    const site = { ...base, site_url: 'https://plugins.example.ch', plugin: { name: 'supertext-wordpress-polylang', version: '2.1.0' }, system: { name: 'WordPress' } };
+    const ip = { 'x-forwarded-for': '198.51.100.31' };
+    const find = async () => (await store.listInstallations({ q: 'plugins.example.ch' }))[0];
+
+    it('stores the list, keeps it on reports without one and finds sites by plugin name', async () => {
+      await post({ ...site, event: 'installed' }, ip);
+      expect((await find()).extensions).toBeNull();
+      const list = [
+        { name: 'Polylang Pro', version: '3.7.2', active: true, type: 'plugin' },
+        { name: 'Very Rare Plugin', version: '1.0', active: false, type: 'plugin' },
+      ];
+      await post({ ...site, event: 'extensions', extensions: list }, ip);
+      let i = await find();
+      expect(i.extensions).toEqual(list);
+      expect(i.extensions_at).toBeInstanceOf(Date);
+      expect(i.last_event).toBe('extensions');
+      let history = await store.installationHistory(i.id);
+      expect(history[0].extensions).toEqual(list);
+      expect(history[0].changed).toBe(true);
+
+      await post({ ...site, event: 'settings_saved' }, ip);
+      i = await find();
+      expect(i.extensions).toEqual(list);
+      history = await store.installationHistory(i.id);
+      expect(history[0].extensions).toBeNull();
+      expect(history[0].changed).toBe(false);
+
+      // The same list again (another order): no change.
+      await post({ ...site, event: 'extensions', extensions: [...list].reverse() }, ip);
+      expect((await store.installationHistory(i.id))[0].changed).toBe(false);
+
+      expect((await store.listInstallations({ q: 'very rare' })).map((x) => x.id)).toEqual([i.id]);
     });
   });
 

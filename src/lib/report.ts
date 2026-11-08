@@ -22,6 +22,22 @@ export interface Report {
    * When set, apiKeyConfigured and apiKeyCheck are its summary: any key configured, the worst check.
    */
   apiKeys: NamedApiKey[] | null;
+  /**
+   * The other plugins, extensions, modules or themes installed on the site (field extensions), or null
+   * when the report has no list. Plugins send it when an administrator presses their "send installed
+   * plugins" button (event extensions), or with every report if the plugin's developer chose so.
+   */
+  extensions: Extension[] | null;
+}
+
+/** Another plugin, extension, module or theme installed on the site. */
+export interface Extension {
+  name: string;
+  version: string | null;
+  /** Whether it is enabled; null if the system doesn't say. */
+  active: boolean | null;
+  /** plugin, theme, module, extension, bundle, package, app, …; null if not given. */
+  type: string | null;
 }
 
 /** One of several API keys a plugin uses (e.g. "AI translation", "Professional orders"). */
@@ -41,10 +57,13 @@ export interface ApiKeyCheck {
 
 export const KEY_STATUSES = ['ok', 'invalid', 'missing', 'unreachable', 'error'] as const;
 
-export const KNOWN_EVENTS = ['installed', 'settings_saved', 'upgraded', 'api_key_check', 'check'] as const;
-export const MAX_BODY_BYTES = 8 * 1024;
+export const KNOWN_EVENTS = ['installed', 'settings_saved', 'upgraded', 'api_key_check', 'check', 'extensions'] as const;
+/** Room for a list of a few hundred installed plugins. */
+export const MAX_BODY_BYTES = 64 * 1024;
 /** At most this many named keys per report; more are ignored. */
 export const MAX_API_KEYS = 20;
+/** At most this many installed plugins per report; more are ignored. */
+export const MAX_EXTENSIONS = 500;
 
 /** Worst first: the summary of several keys is the first status in this order that any key has. */
 const STATUS_ORDER = ['invalid', 'error', 'unreachable', 'missing'];
@@ -132,6 +151,32 @@ export function parseApiKeys(value: unknown, now = Date.now()): NamedApiKey[] | 
   return keys;
 }
 
+const EXTENSION_TYPE = /^[a-z][a-z0-9_-]{0,29}$/;
+
+/**
+ * Optional extensions: [{name, version, active, type}], at most MAX_EXTENSIONS. Extra information like
+ * the key check: malformed entries, duplicates (same type and name) and entries past the limit are
+ * dropped, a malformed version or type becomes null, and a value that isn't a list counts as absent.
+ */
+export function parseExtensions(value: unknown): Extension[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: Extension[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (out.length >= MAX_EXTENSIONS) break;
+    const e = obj(entry);
+    const name = e && text(e.name, 100);
+    if (!e || !name) continue;
+    const t = text(e.type, 30);
+    const type = t && EXTENSION_TYPE.test(t) ? t : null;
+    const id = `${type ?? ''}\u0000${name.toLowerCase()}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({ name, version: text(e.version, 50), active: typeof e.active === 'boolean' ? e.active : null, type });
+  }
+  return out;
+}
+
 /** Optional {"url": "..."}; anything malformed is dropped like a malformed key check. */
 export function parseCallback(value: unknown): string | null {
   const c = obj(value);
@@ -183,6 +228,7 @@ export function parseReport(body: unknown, now = Date.now()): ParseResult {
       apiKeyCheck: apiKeys ? worstCheck(apiKeys) : parseApiKeyCheck(b.api_key_check, now),
       callbackUrl: parseCallback(b.callback),
       apiKeys,
+      extensions: parseExtensions(b.extensions),
     },
   };
 }

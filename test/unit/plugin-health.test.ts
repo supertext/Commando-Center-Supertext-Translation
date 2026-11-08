@@ -14,7 +14,7 @@ const callback = read('../../spec/callback-vectors.json');
 describe('Plugin Health → center', () => {
   for (const scenario of spec.scenarios) {
     it(scenario.name, async () => {
-      const config = { ...spec.config, ...scenario.config };
+      const { extensions: configExtensions, ...config } = { ...spec.config, ...scenario.config };
       let state = reporterState(scenario.state);
       for (const step of scenario.steps) {
         const bodies: Record<string, unknown>[] = [];
@@ -26,6 +26,7 @@ describe('Plugin Health → center', () => {
           keyChecker,
           reportUrl: 'https://center.test/api/v1/report',
           now: () => Date.parse(step.now),
+          ...(configExtensions ? { extensions: () => configExtensions } : {}),
           fetch: async (_url, init) => {
             bodies.push(JSON.parse(init.body));
             if (step.report?.transportError) throw new TypeError('fetch failed');
@@ -41,12 +42,18 @@ describe('Plugin Health → center', () => {
                 ? await reporter.authenticationFailed(state, keys, step.httpStatus, step.keyName)
                 : step.action === 'testConnection'
                   ? await reporter.testConnection(state, keys)
-                  : await reporter.reportCheck(state);
+                  : step.action === 'sendExtensions'
+                    ? await reporter.sendExtensions(state, step.extensions)
+                    : await reporter.reportCheck(state);
         for (const body of bodies) {
           const parsed = parseReport(body, Date.parse(step.now));
           expect(parsed.ok, JSON.stringify(body)).toBe(true);
           if (parsed.ok && body.api_key_check) expect(parsed.report.apiKeyCheck?.status).toBe((body.api_key_check as { status: string }).status);
           if (parsed.ok && config.callbackUrl) expect(parsed.report.callbackUrl).toBe(config.callbackUrl);
+          if (parsed.ok && body.extensions) {
+            const sent = body.extensions as { name: string; version?: string; active?: boolean; type?: string }[];
+            expect(parsed.report.extensions).toEqual(sent.map((e) => ({ name: e.name, version: e.version ?? null, active: e.active ?? null, type: e.type ?? null })));
+          }
           if (parsed.ok && body.api_keys) {
             const sent = body.api_keys as { name: string; check: { status: string } }[];
             expect(parsed.report.apiKeys?.map((k) => [k.name, k.check?.status])).toEqual(sent.map((k) => [k.name, k.check.status]));

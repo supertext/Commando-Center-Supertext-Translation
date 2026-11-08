@@ -9,9 +9,11 @@ import {
   PLUGIN_HEALTH_VERSION,
   REPORT_TIMEOUT_MS,
   keyCheck,
+  normalizeExtensions,
   pingResponse,
   reporterState,
   reportsEnabled,
+  type Extension,
   type FetchLike,
   type KeyCheck,
   type KeyChecker,
@@ -78,10 +80,10 @@ describe('spec/reporter.json', () => {
 
   for (const scenario of s.scenarios) {
     it(scenario.name, async () => {
-      const config = { ...s.config, ...scenario.config }
+      const { extensions: configExtensions, ...config } = { ...s.config, ...scenario.config } as typeof s.config & { extensions?: Extension[] }
       let state: ReporterState = reporterState(JSON.parse(JSON.stringify(scenario.state)))
       for (const raw of scenario.steps) {
-        const step = raw as typeof raw & { apiKeys?: Record<string, string>; keyChecks?: KeyCheck[]; keyName?: string; checks?: unknown }
+        const step = raw as typeof raw & { apiKeys?: Record<string, string>; keyChecks?: KeyCheck[]; keyName?: string; checks?: unknown; extensions?: Extension[] }
         const keys = step.apiKeys ?? step.apiKey!
         const f = fakes(step.keyChecks ?? step.keyCheck, step.report)
         const reporter = new InstallationReporter({
@@ -90,6 +92,7 @@ describe('spec/reporter.json', () => {
           reportUrl: 'https://center.test/api/v1/report',
           fetch: f.fetch,
           now: () => Date.parse(step.now),
+          ...(configExtensions ? { extensions: () => configExtensions } : {}),
         })
         const r =
           step.action === 'afterSettingsSaved'
@@ -100,7 +103,9 @@ describe('spec/reporter.json', () => {
                 ? await reporter.authenticationFailed(state, keys, step.httpStatus, step.keyName)
                 : step.action === 'testConnection'
                   ? await reporter.testConnection(state, keys)
-                  : await reporter.reportCheck(state)
+                  : step.action === 'sendExtensions'
+                    ? await reporter.sendExtensions(state, step.extensions!)
+                    : await reporter.reportCheck(state)
         expect(f.calls, step.action).toEqual(step.expect.calls)
         expect(r.event).toBe(step.expect.event)
         expect(r.sent).toBe(step.expect.sent)
@@ -184,6 +189,30 @@ describe('reporter', () => {
     const reporter = new InstallationReporter({ ...s.config, runtime: undefined, keyChecker: fakes(undefined, null).keyChecker })
     expect(reporter.buildReport('check', reporterState(null)).runtime).toEqual({ name: 'Node.js', version: process.versions.node })
   })
+  it('sends at most 500 installed plugins and cuts long names', () => {
+    const list: Extension[] = Array.from({ length: 520 }, (_, n) => ({ name: `Plugin ${n}`, version: '1.0' }))
+    list.unshift({ name: 'x'.repeat(150), version: 'v'.repeat(80), type: 'P'.repeat(40) })
+    const out = normalizeExtensions(list)
+    expect(out).toHaveLength(500)
+    expect(out[0]).toEqual({ name: 'x'.repeat(100), version: 'v'.repeat(50), type: 'p'.repeat(30) })
+  })
+
+  it('an extensions function that throws leaves the list out, the report still goes', async () => {
+    const f = fakes(okCheck, { status: 202 })
+    const reporter = new InstallationReporter({
+      ...s.config,
+      keyChecker: { ...f.keyChecker, fingerprint: () => 'fp' },
+      reportUrl: 'https://center.test/api/v1/report',
+      fetch: f.fetch,
+      extensions: () => {
+        throw new Error('boom')
+      },
+    })
+    const r = await reporter.reportCheck(null)
+    expect(r.sent).toBe(true)
+    expect(f.bodies[0]).not.toHaveProperty('extensions')
+  })
+
   it('checks at most 20 named keys and drops blank and repeated names', async () => {
     const f = fakes(Array.from({ length: 30 }, () => okCheck), { status: 202 })
     const reporter = new InstallationReporter({ ...s.config, keyChecker: { ...f.keyChecker, fingerprint: () => 'fp' }, reportUrl: 'https://center.test/api/v1/report', fetch: f.fetch })

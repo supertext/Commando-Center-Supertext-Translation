@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "supertext-plugin-health"
-version = "0.2.0"
+version = "0.3.0"
 description = "Supertext Plugin Health: version reports, API key check results and the reachability ping of Supertext plugins, for the Supertext Plugin Health dashboard."
 readme = "README.md"
 license = "MIT"

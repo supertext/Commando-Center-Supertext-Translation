@@ -14,7 +14,7 @@ import os
 import platform
 import re
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Final, Literal, Union
 
@@ -26,8 +26,10 @@ __all__ = [
     "DEFAULT_REPORT_URL",
     "FAILURE_BACKOFF",
     "MAX_API_KEYS",
+    "MAX_EXTENSIONS",
     "REPORT_TIMEOUT",
     "ApiKeys",
+    "Extension",
     "InstallationReporter",
     "NameVersion",
     "PingResponse",
@@ -35,6 +37,7 @@ __all__ = [
     "ReporterResult",
     "ReporterState",
     "StateInput",
+    "normalize_extensions",
     "ping_response",
     "reporter_state",
     "reports_enabled",
@@ -67,7 +70,50 @@ MAX_API_KEYS: Final = 20
 """At most this many named keys are checked and reported; the rest are ignored."""
 """A state as the plugin stored it: a :class:`ReporterState`, its ``to_dict()``, its JSON, or ``None``."""
 
-ReportEvent = Literal["installed", "settings_saved", "upgraded", "api_key_check", "check"]
+ReportEvent = Literal["installed", "settings_saved", "upgraded", "api_key_check", "check", "extensions"]
+
+Extension = Mapping[str, Any]
+"""Another plugin, extension, module or theme installed on the site:
+``{"name": "Polylang Pro", "version": "3.7.2", "active": True, "type": "plugin"}`` (only the name is required)."""
+
+MAX_EXTENSIONS: Final = 500
+"""At most this many installed plugins are sent; the rest are left out."""
+
+
+def normalize_extensions(extensions: Iterable[Extension]) -> list[dict[str, Any]]:
+    """The installed plugins as they are sent.
+
+    Names and versions trimmed (100 and 50 characters), types in lower case (30), blank names and repeats
+    (same type and name, ignoring case) dropped, at most :data:`MAX_EXTENSIONS`.
+    """
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for e in extensions:
+        if len(out) >= MAX_EXTENSIONS:
+            break
+        if not isinstance(e, Mapping) or not isinstance(e.get("name"), str):
+            continue
+        name = e["name"].strip()[:100]
+        if not name:
+            continue
+        raw_type = e.get("type")
+        type_ = raw_type.strip().lower()[:30] if isinstance(raw_type, str) else ""
+        key = (type_, name.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        entry: dict[str, Any] = {"name": name}
+        raw_version = e.get("version")
+        version = raw_version.strip()[:50] if isinstance(raw_version, str) else ""
+        if version:
+            entry["version"] = version
+        if isinstance(e.get("active"), bool):
+            entry["active"] = e["active"]
+        if type_:
+            entry["type"] = type_
+        out.append(entry)
+    return out
+
 
 _CHALLENGE = re.compile(r"[A-Za-z0-9_-]{16,64}")
 _OFF: Final = ("0", "false", "off", "no")
@@ -234,7 +280,9 @@ class InstallationReporter:
     version source; ``system`` is the CMS, PIM, shop or application in its own spelling. ``key_checker``
     is the bundled SDK's key check (see :class:`KeyChecker`), ``sdk_version`` the SDK's ``SDK_VERSION``
     (``None``: no ``sdk_version`` in the report). ``callback_url`` is the plugin's public ping endpoint
-    (``None`` for hosted apps). ``transport`` sends the report; ``now`` is the Unix time in seconds.
+    (``None`` for hosted apps). ``extensions`` optionally returns the installed plugins, so that every
+    report carries them (leave it out to send them only by hand with :meth:`send_extensions`, the
+    default). ``transport`` sends the report; ``now`` is the Unix time in seconds.
     None of the methods ever raises.
     """
 
@@ -252,6 +300,7 @@ class InstallationReporter:
         report_url: str | None = None,
         transport: Transport | None = None,
         now: Callable[[], float] = time.time,
+        extensions: Callable[[], Iterable[Extension]] | None = None,
     ) -> None:
         self._enabled = enabled
         self.site_url = site_url
@@ -264,6 +313,7 @@ class InstallationReporter:
         self.report_url = report_url or os.environ.get("SUPERTEXT_REPORT_URL") or DEFAULT_REPORT_URL
         self._transport: Transport = transport or UrllibTransport()
         self._now = now
+        self._extensions = extensions
 
     def __repr__(self) -> str:
         return f"InstallationReporter(plugin={self.plugin.name!r}, report_url={self.report_url!r})"
@@ -324,8 +374,24 @@ class InstallationReporter:
         """Sends a ``check`` report now (commands, tests), even after a recent failure."""
         return self._send(reporter_state(state), "check")
 
-    def build_report(self, event: ReportEvent, state: StateInput) -> dict[str, Any]:
-        """The report body for an event and state (neither the key nor its fingerprint is part of it)."""
+    def send_extensions(self, state: StateInput, extensions: Iterable[Extension]) -> ReporterResult:
+        """The plugin's "Send installed plugins to Supertext" button: sends event ``extensions`` with the list.
+
+        Now, even after a recent failure, but only while reporting is on (``sent`` is False otherwise).
+        """
+        try:
+            listed = normalize_extensions(extensions)
+        except Exception:
+            listed = []
+        return self._send(reporter_state(state), "extensions", listed)
+
+    def build_report(
+        self, event: ReportEvent, state: StateInput, extensions: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        """The report body for an event and state (neither the key nor its fingerprint is part of it).
+
+        ``extensions``: the installed plugins to send; default: the ``extensions`` function's, if any.
+        """
         current = reporter_state(state)
         body: dict[str, Any] = {
             "schema": 1,
@@ -347,7 +413,18 @@ class InstallationReporter:
             body["api_key_check"] = _check_body(current.key_check)
         if self.callback_url:
             body["callback"] = {"url": self.callback_url}
+        listed = extensions if extensions is not None else self._configured_extensions()
+        if listed is not None:
+            body["extensions"] = listed
         return body
+
+    def _configured_extensions(self) -> list[dict[str, Any]] | None:
+        if self._extensions is None:
+            return None
+        try:
+            return normalize_extensions(self._extensions())
+        except Exception:
+            return None  # never fails the report: the list is extra information
 
     # -- Internals ---------------------------------------------------------------------------
 
@@ -421,12 +498,14 @@ class InstallationReporter:
                 return ReporterResult(state, state.key_check, None, False, state.key_checks)
         return self._send(state, event)
 
-    def _send(self, state: ReporterState, event: ReportEvent) -> ReporterResult:
+    def _send(
+        self, state: ReporterState, event: ReportEvent, extensions: list[dict[str, Any]] | None = None
+    ) -> ReporterResult:
         if not self._enabled:
             return ReporterResult(state, state.key_check, None, False, state.key_checks)
         ok = False
         try:
-            body = json.dumps(self.build_report(event, state), separators=(",", ":")).encode("utf-8")
+            body = json.dumps(self.build_report(event, state, extensions), separators=(",", ":")).encode("utf-8")
             headers = {
                 "Content-Type": "application/json",
                 "Accept": "application/json",

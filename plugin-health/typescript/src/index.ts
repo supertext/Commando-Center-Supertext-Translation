@@ -14,13 +14,13 @@
 
 import config from './config.json' with { type: 'json' }
 
-export const PLUGIN_HEALTH_VERSION = '0.2.0'
+export const PLUGIN_HEALTH_VERSION = '0.3.0'
 /** The live Plugin Health dashboard, from config.json (plugin-health/config.json). SUPERTEXT_REPORT_URL overrides it. */
 export const DEFAULT_REPORT_URL: string = config.reportUrl
 export const REPORT_TIMEOUT_MS = 3_000
 export const FAILURE_BACKOFF_MS = 3_600_000
 
-export type ReportEvent = 'installed' | 'settings_saved' | 'upgraded' | 'api_key_check' | 'check'
+export type ReportEvent = 'installed' | 'settings_saved' | 'upgraded' | 'api_key_check' | 'check' | 'extensions'
 
 /** The result of the SDK's API key check, as the reporter stores and reports it. */
 export interface KeyCheck {
@@ -68,6 +68,46 @@ export interface ReporterState {
   reportedKeyStatuses: Record<string, string> | null
 }
 
+/** Another plugin, extension, module or theme installed on the site (see `sendExtensions`). */
+export interface Extension {
+  /** As the system shows it, e.g. "Polylang Pro". */
+  name: string
+  version?: string | null
+  /** Whether it is enabled; leave it out if the system doesn't say. */
+  active?: boolean | null
+  /** The system's own word: plugin, theme, module, extension, bundle, package, app, … */
+  type?: string | null
+}
+
+/** At most this many installed plugins are sent; the rest are left out. */
+export const MAX_EXTENSIONS = 500
+
+/**
+ * The list as it is sent: names and versions trimmed (100 and 50 characters), types in lower case
+ * (30), blank names and repeats (same type and name, ignoring case) dropped, at most MAX_EXTENSIONS.
+ */
+export function normalizeExtensions(list: Iterable<Extension>): Extension[] {
+  const out: Extension[] = []
+  const seen = new Set<string>()
+  for (const e of list) {
+    if (out.length >= MAX_EXTENSIONS) break
+    if (!e || typeof e !== 'object' || typeof e.name !== 'string') continue
+    const name = e.name.trim().slice(0, 100)
+    if (!name) continue
+    const type = typeof e.type === 'string' ? e.type.trim().toLowerCase().slice(0, 30) : ''
+    const id = `${type}\u0000${name.toLowerCase()}`
+    if (seen.has(id)) continue
+    seen.add(id)
+    const entry: Extension = { name }
+    const version = typeof e.version === 'string' ? e.version.trim().slice(0, 50) : ''
+    if (version) entry.version = version
+    if (typeof e.active === 'boolean') entry.active = e.active
+    if (type) entry.type = type
+    out.push(entry)
+  }
+  return out
+}
+
 export interface NameVersion {
   name: string
   version?: string | null
@@ -96,6 +136,11 @@ export interface ReporterOptions {
   runtime?: NameVersion
   /** The plugin's public ping endpoint; null for hosted apps without one. */
   callbackUrl?: string | null
+  /**
+   * Optional: returns the installed plugins, so that every report carries them. Leave it out to send
+   * them only by hand (`sendExtensions`, the plugin's button): the default. Only where the list is cheap.
+   */
+  extensions?: () => Iterable<Extension>
   /** Default: `SUPERTEXT_REPORT_URL` from the environment, else the live center. */
   reportUrl?: string
   /** HTTP for the report (tests). Default: the global `fetch`. */
@@ -289,8 +334,16 @@ export class InstallationReporter {
     return this.#send(state ?? EMPTY_REPORTER_STATE, 'check')
   }
 
-  /** The report body for an event and state. */
-  buildReport(event: ReportEvent, state: ReporterState): Record<string, unknown> {
+  /**
+   * The plugin's "Send installed plugins to Supertext" button: sends event `extensions` with the list
+   * now, even after a recent failure, but only while reporting is on (`sent` false otherwise).
+   */
+  async sendExtensions(state: ReporterState | null, extensions: Iterable<Extension>): Promise<ReporterResult> {
+    return this.#send(state ?? EMPTY_REPORTER_STATE, 'extensions', normalizeExtensions(extensions))
+  }
+
+  /** The report body for an event and state (`extensions`: the list to send; default: the extensions function's, if any). */
+  buildReport(event: ReportEvent, state: ReporterState, extensions?: Extension[] | null): Record<string, unknown> {
     const o = this.#options
     const body: Record<string, unknown> = {
       schema: 1,
@@ -308,7 +361,18 @@ export class InstallationReporter {
       body.api_key_check = checkBody(state.keyCheck)
     }
     if (o.callbackUrl) body.callback = { url: o.callbackUrl }
+    const list = extensions ?? this.#extensions()
+    if (list) body.extensions = list
     return body
+  }
+
+  #extensions(): Extension[] | null {
+    if (!this.#options.extensions) return null
+    try {
+      return normalizeExtensions(this.#options.extensions())
+    } catch {
+      return null // never fails the report: the list is extra information
+    }
   }
 
   #runtime(): NameVersion {
@@ -365,7 +429,7 @@ export class InstallationReporter {
     return this.#send(state, event)
   }
 
-  async #send(state: ReporterState, event: ReportEvent): Promise<ReporterResult> {
+  async #send(state: ReporterState, event: ReportEvent, extensions: Extension[] | null = null): Promise<ReporterResult> {
     if (!this.#options.enabled) return { state, check: state.keyCheck, checks: state.keyChecks, event: null, sent: false }
     let ok = false
     try {
@@ -376,7 +440,7 @@ export class InstallationReporter {
           Accept: 'application/json',
           'User-Agent': `supertext-plugin-health/${PLUGIN_HEALTH_VERSION} (typescript) ${this.#options.plugin.name}/${this.#options.plugin.version}`,
         },
-        body: JSON.stringify(this.buildReport(event, state)),
+        body: JSON.stringify(this.buildReport(event, state, extensions)),
         signal: AbortSignal.timeout(REPORT_TIMEOUT_MS),
       })
       ok = response.status >= 200 && response.status < 300

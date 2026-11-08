@@ -4,6 +4,12 @@ All five languages share one version. Changes not yet released go under *Unrelea
 
 ## Unreleased
 
+## 0.3.0 — 2026-11-08
+
+### Added
+
+- Installed plugins: `sendExtensions(state, list)` (PHP `sendExtensions`, Python `send_extensions`, .NET `SendExtensionsAsync`, Java `sendExtensions`) sends the other plugins, extensions, modules or themes installed on the site (`name`, `version`, `active`, `type`) with the new event `extensions`, for the plugin's *Send installed plugins to Supertext* button: now, even after a recent failure, but only while reporting is on. Optional `extensions` function in the options: every report then carries the list (the developer's choice; by default the list is only sent by hand). The list is trimmed and cut, types in lower case, blank names and repeats dropped, at most 500 (`MAX_EXTENSIONS`, `normalizeExtensions`). New types: TypeScript `Extension`, .NET `Extension` record, Java `Extension` record, Python `Extension` (a mapping). Spec: three scenarios in `spec/reporter.json`. Needs the dashboard with migration 005 (older dashboards store the report and ignore the list).
+
 ## 0.2.0 — 2026-11-07
 
 ### Added

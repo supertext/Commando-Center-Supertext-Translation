@@ -87,7 +87,17 @@ public static class ReportEvents
 
     /// <summary>Sent on request (<see cref="InstallationReporter.ReportCheckAsync"/>).</summary>
     public const string Check = "check";
+
+    /// <summary>The list of installed plugins was sent (<see cref="InstallationReporter.SendExtensionsAsync"/>).</summary>
+    public const string Extensions = "extensions";
 }
+
+/// <summary>Another plugin, extension, module or theme installed on the site (see <see cref="InstallationReporter.SendExtensionsAsync"/>).</summary>
+/// <param name="Name">As the system shows it, e.g. "Polylang Pro".</param>
+/// <param name="Version">Its version, if known.</param>
+/// <param name="Active">Whether it is enabled; null if the system doesn't say.</param>
+/// <param name="Type">The system's own word: plugin, theme, module, extension, bundle, package, app, …</param>
+public sealed record Extension(string Name, string? Version = null, bool? Active = null, string? Type = null);
 
 /// <summary>A name and an optional version (system, runtime, plugin).</summary>
 public sealed record NameVersion(string Name, string? Version = null);

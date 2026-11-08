@@ -36,6 +36,7 @@ describe('parseReport (spec/report-examples.json)', () => {
         apiKeyCheck: { status: 'ok', checkedAt: new Date('2026-10-13T07:15:00Z'), httpStatus: 200, errorCode: null },
         callbackUrl: 'https://www.example.ch/supertext/ping',
         apiKeys: null,
+        extensions: null,
       },
     });
   });
@@ -60,11 +61,14 @@ describe('api_key_check (spec/report-examples.json → stored)', () => {
             callback_url?: string | null;
             api_key_configured?: boolean;
             api_keys?: Record<string, unknown>[];
+            extensions?: Record<string, unknown>[];
           };
         }
       ).stored;
       if ('callback_url' in stored) expect(r.report.callbackUrl).toBe(stored.callback_url);
       if ('api_key_configured' in stored) expect(r.report.apiKeyConfigured).toBe(stored.api_key_configured);
+      if ('extensions' in stored) expect(r.report.extensions).toEqual(stored.extensions);
+      else expect(r.report.extensions).toBeNull();
       if ('api_keys' in stored) {
         expect(
           r.report.apiKeys?.map((k) => ({
@@ -121,5 +125,27 @@ describe('api_keys', () => {
     expect(worstCheck([c('ok', '2026-01-01'), c('ok', '2026-01-03')])?.checkedAt?.toISOString()).toBe('2026-01-03T00:00:00.000Z');
     expect(worstCheck([c('ok', '2026-01-01'), c('weird', '2026-01-01')])?.status).toBe('weird');
     expect(worstCheck([{ check: null }])).toBeNull();
+  });
+});
+
+describe('extensions', () => {
+  const base = { schema: 1, event: 'extensions', site_url: 'https://www.example.ch', plugin: { name: 'X', version: '1.0.0' }, system: { name: 'WordPress' } };
+
+  it('treats a value that is not a list as absent', () => {
+    for (const extensions of [null, 'Polylang', { name: 'Polylang' }]) {
+      const r = parseReport({ ...base, extensions });
+      expect(r.ok && r.report.extensions).toBeNull();
+    }
+  });
+
+  it('keeps at most 500 entries', () => {
+    const extensions = Array.from({ length: 520 }, (_, n) => ({ name: `Plugin ${n}`, version: '1.0' }));
+    const r = parseReport({ ...base, extensions });
+    expect(r.ok && r.report.extensions?.length).toBe(500);
+  });
+
+  it('keeps a plugin and a theme of the same name apart', () => {
+    const r = parseReport({ ...base, extensions: [{ name: 'Astra', type: 'plugin' }, { name: 'Astra', type: 'theme' }] });
+    expect(r.ok && r.report.extensions?.map((e) => e.type)).toEqual(['plugin', 'theme']);
   });
 });

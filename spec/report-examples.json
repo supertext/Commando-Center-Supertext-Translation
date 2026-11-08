@@ -267,6 +267,57 @@
         "api_keys": []
       },
       "stored": { "api_key_configured": false, "api_key_check": null, "api_keys": [] }
+    },
+    {
+      "name": "The other plugins installed on the site (event extensions, sent with the plugin's button)",
+      "body": {
+        "schema": 1,
+        "event": "extensions",
+        "site_url": "https://blog.example.ch/",
+        "plugin": { "name": "supertext-wordpress-polylang", "version": "2.1.0" },
+        "system": { "name": "WordPress", "version": "6.9" },
+        "runtime": { "name": "PHP", "version": "8.3.12" },
+        "extensions": [
+          { "name": "Polylang Pro", "version": "3.7.2", "active": true, "type": "plugin" },
+          { "name": "Yoast SEO", "version": "24.1", "active": true, "type": "plugin" },
+          { "name": "Akismet Anti-spam", "version": "5.3", "active": false, "type": "plugin" },
+          { "name": "Twenty Twenty-Five", "version": "1.2", "active": true, "type": "theme" }
+        ]
+      },
+      "stored": {
+        "api_key_check": null,
+        "extensions": [
+          { "name": "Polylang Pro", "version": "3.7.2", "active": true, "type": "plugin" },
+          { "name": "Yoast SEO", "version": "24.1", "active": true, "type": "plugin" },
+          { "name": "Akismet Anti-spam", "version": "5.3", "active": false, "type": "plugin" },
+          { "name": "Twenty Twenty-Five", "version": "1.2", "active": true, "type": "theme" }
+        ]
+      }
+    },
+    {
+      "name": "Installed plugins: malformed entries and duplicates are dropped, a malformed version or type becomes null",
+      "body": {
+        "schema": 1,
+        "event": "extensions",
+        "site_url": "https://shop.example.ch",
+        "plugin": { "name": "Magento-Supertext-Translation", "version": "0.4.0" },
+        "system": { "name": "Magento Open Source", "version": "2.4.8" },
+        "extensions": [
+          { "name": "Mageplaza_Smtp", "version": "4.7.4", "active": true, "type": "module" },
+          { "name": "mageplaza_smtp", "version": "4.7.5", "type": "module" },
+          { "name": "  ", "version": "1.0" },
+          { "version": "1.0" },
+          "Amasty_Base",
+          { "name": "Hyva_Theme", "version": 3, "active": "yes", "type": "Theme!" }
+        ]
+      },
+      "stored": {
+        "api_key_check": null,
+        "extensions": [
+          { "name": "Mageplaza_Smtp", "version": "4.7.4", "active": true, "type": "module" },
+          { "name": "Hyva_Theme", "version": null, "active": null, "type": null }
+        ]
+      }
     }
   ],
   "invalid": [

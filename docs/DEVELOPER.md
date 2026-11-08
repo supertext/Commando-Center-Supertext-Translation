@@ -36,8 +36,8 @@ The dashboard was called *Commando Center* until November 2026. Technical names 
 
 ### Data model
 
-- `installations`: one row per **normalized site URL + plugin** with the latest reported state (including the newest API key check; with named keys `api_keys` holds each key with its newest check and the `api_key_*` columns their summary), the client it is mapped to, notes, first and last report.
-- `reports`: every report received (event, versions, the key check if the report had one, the named keys as reported, `changed` = differs from the previous state). The history on the installation page reads from here.
+- `installations`: one row per **normalized site URL + plugin** with the latest reported state (including the newest API key check; with named keys `api_keys` holds each key with its newest check and the `api_key_*` columns their summary; `extensions` the last list of installed plugins and `extensions_at` when it came), the client it is mapped to, notes, first and last report.
+- `reports`: every report received (event, versions, the key check if the report had one, the named keys as reported, the installed plugins if the report carried them, `changed` = differs from the previous state). The history on the installation page reads from here.
 - `callback_pings`: every callback ping (time, trigger `report` or `manual`, URL, result, HTTP status, latency, detail); the installation keeps the latest result.
 - `clients`: Supertext customers, created by hand. Names are unique regardless of case. Deleting a client unmaps its installations; deleting an installation deletes its history.
 
@@ -72,7 +72,7 @@ Content-Type: application/json
 | Field | Required | Content |
 | --- | --- | --- |
 | `schema` | yes | `1` |
-| `event` | yes | `installed` (first report of an installation), `settings_saved`, `upgraded` (plugin, system or runtime version changed since the last report), `api_key_check` (the key check result changed outside a settings save, see *The API key check*), `check` (sent by a command or test). Lower case and `_`, at most 40 characters; other values are stored as given. |
+| `event` | yes | `installed` (first report of an installation), `settings_saved`, `upgraded` (plugin, system or runtime version changed since the last report), `api_key_check` (the key check result changed outside a settings save, see *The API key check*), `check` (sent by a command or test), `extensions` (an administrator sent the list of installed plugins, see *Installed plugins*). Lower case and `_`, at most 40 characters; other values are stored as given. |
 | `site_url` | yes | The base URL of the installation, as the system knows it (WordPress `home_url()`, TYPO3 site base, Magento base URL of the default store, the shop domain for Shopify, …). Absolute `http`/`https`. |
 | `plugin.name` | yes | The plugin's GitHub repository name (`Typo3-Supertext-Translation`). The dashboard reads the latest release from `github.com/Supertext/<name>`. |
 | `plugin.version` | yes | From the plugin's official version source (see the conventions → *Releases*), never a second hardcoded copy. |
@@ -86,8 +86,9 @@ Content-Type: application/json
 | `api_key_check.http_status` | no | The HTTP status Supertext answered the check with |
 | `api_key_check.error_code` | no | Supertext's error code from the response body, if any (at most 100 characters) |
 | `api_keys` | no | For plugins with several API keys (WordPress: AI translation, professional orders, …): a list of 0 to 20 entries `{"name": "AI translation", "configured": true, "check": {…as api_key_check…}}`. `name` (1–60 characters, unique in the report) is what the plugin's settings call the key, never the key itself; `check` may be missing or `null` (not checked yet). When present, the dashboard stores every key and ignores `api_key_configured` and `api_key_check`; it keeps their summary (any key configured, the worst check: `invalid` before `error`, `unreachable`, `missing`, other values, `ok`), so lists and filters work the same. Plugins with one key may keep the two single-key fields. |
+| `extensions` | no | The other plugins, extensions, modules or themes installed on the site, at most 500: `{"name": "Polylang Pro", "version": "3.7.2", "active": true, "type": "plugin"}`. Only `name` (1–100 characters) is required; `type` is the system's own word in lower case (`plugin`, `theme`, `module`, `extension`, `bundle`, `package`, `app`, …). Missing: the report has no list and the dashboard keeps the last one. See *Installed plugins*. |
 
-Unknown fields are accepted and ignored, so later versions can add fields without breaking older centers. The body may be at most 8 KB; strings must not contain control characters. A malformed `api_key_check` is dropped and the rest of the report is stored, so a plugin bug there never loses the version information; the same goes for malformed `api_keys` entries, duplicate names and entries past 20.
+Unknown fields are accepted and ignored, so later versions can add fields without breaking older centers. The body may be at most 64 KB (room for a few hundred installed plugins); strings must not contain control characters. A malformed `api_key_check` is dropped and the rest of the report is stored, so a plugin bug there never loses the version information; the same goes for malformed `api_keys` entries, duplicate names and entries past 20, and for malformed `extensions` entries, duplicates (same type and name, ignoring case) and entries past 500 (a malformed `version`, `active` or `type` is stored as `null`).
 
 Example with several keys (instead of `api_key_configured` and `api_key_check`):
 
@@ -155,6 +156,25 @@ Every plugin checks the API key automatically, so administrators learn about a w
 | `error` | The API key couldn't be checked: Supertext answered with an error ({status}). The settings are saved; check again later. | Der API-Schlüssel konnte nicht geprüft werden: Supertext hat mit einem Fehler geantwortet ({status}). Die Einstellungen sind gespeichert; prüfen Sie ihn später erneut. | La clé API n'a pas pu être vérifiée : Supertext a répondu par une erreur ({status}). Les paramètres sont enregistrés ; réessayez plus tard. | Non è stato possibile verificare la chiave API: Supertext ha risposto con un errore ({status}). Le impostazioni sono salvate; riprovi più tardi. |
 
 Plugins that already have a *Test connection* button and an *authentication failed* message keep their wording if it carries both links; the table is for plugins that don't have one yet.
+
+### Installed plugins
+
+So Supertext support can spot conflicts (another multilingual plugin, a cache, a page builder), a plugin can send the list of the other plugins installed on the site: name, version, active or not, and the type where the system has several (WordPress plugins and themes, Magento modules, TYPO3 extensions, …).
+
+- **By default only by hand:** the plugin's settings page has a button *Send installed plugins to Supertext*. It sends a report with event `extensions` and the list (Plugin Health ≥ 0.3: `sendExtensions(state, list)`). Nothing is sent automatically.
+- **The developer may choose more:** a plugin can give Plugin Health a function that returns the list (`extensions` option); then every report carries it. Only where the list is cheap to read (no file scans on every back-end request: reports only run when one is due).
+- **Off means off:** with *Send version information to Supertext* off the button sends nothing; the plugin says why.
+- Include everything installed, active or not, the theme too. Never settings, licence keys, user data or paths. At most 500 entries (Plugin Health drops the rest).
+- The dashboard keeps the latest list per installation (`installations.extensions`, `extensions_at`), shows it on the installation page, lists what changed in the history (*+ Yoast SEO 24.1*, *Polylang 3.6 → 3.7*, *Akismet deactivated*, *− WPML*) and finds sites by plugin name in the search.
+
+Strings (use the system's own word instead of *plugins*: extensions in Joomla and TYPO3, modules in Magento and PrestaShop, packages, apps, …; `{count}` untranslated):
+
+| | Button | Help text | Sent | Failed | Reporting off |
+| --- | --- | --- | --- | --- | --- |
+| en | Send installed plugins to Supertext | Sends Supertext the list of the plugins installed on this site (name, version, active or not), so Supertext support can help with conflicts. Nothing else is sent. | Sent: {count} plugins. | The list couldn't be sent. Try again later. | Turn on *Send version information to Supertext* to send the list. |
+| de | Installierte Plugins an Supertext senden | Sendet Supertext die Liste der auf dieser Website installierten Plugins (Name, Version, aktiv oder nicht), damit der Supertext-Support bei Konflikten helfen kann. Sonst wird nichts übertragen. | Gesendet: {count} Plugins. | Die Liste konnte nicht gesendet werden. Versuchen Sie es später erneut. | Aktivieren Sie *Versionsinformationen an Supertext senden*, um die Liste zu senden. |
+| fr | Envoyer les plugins installés à Supertext | Envoie à Supertext la liste des plugins installés sur ce site (nom, version, actif ou non), afin que le support Supertext puisse vous aider en cas de conflit. Rien d'autre n'est transmis. | Envoyé : {count} plugins. | La liste n'a pas pu être envoyée. Réessayez plus tard. | Activez *Envoyer les informations de version à Supertext* pour envoyer la liste. |
+| it | Inviare i plugin installati a Supertext | Invia a Supertext l'elenco dei plugin installati su questo sito (nome, versione, attivo o no), affinché l'assistenza Supertext possa aiutarLa in caso di conflitti. Non viene trasmesso nient'altro. | Inviato: {count} plugin. | Non è stato possibile inviare l'elenco. Riprovi più tardi. | Attivi *Inviare le informazioni sulla versione a Supertext* per inviare l'elenco. |
 
 ### The callback ping
 
@@ -294,7 +314,7 @@ Dependabot opens weekly pull requests (npm minor and patch grouped, GitHub Actio
 - **Checks** workflow (`.github/workflows/checks.yml`): [actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://docs.zizmor.sh/) lint the workflows on every push and pull request; dependency review fails a pull request that adds a package with a known vulnerability (moderate or worse). Actions are pinned to commit SHAs. Locally: `pip install actionlint-py zizmor`, then `actionlint` and `zizmor --offline .github/workflows`.
 - **Links** workflow (`.github/workflows/links.yml`): [lychee](https://lychee.cli.rs/) checks the links in all Markdown files weekly and when docs change on `main`; broken links open the issue "Broken links in the docs".
 - TypeScript is analysed by CodeQL default setup; secret scanning with push protection is on (both set by Remy's setup script).
-- The report endpoint is public by design (plugins carry no credentials for the dashboard). It validates every field, limits bodies to 8 KB and reports to 60 per minute per IP. Anyone could send invented reports; treat the data as information, not as proof.
+- The report endpoint is public by design (plugins carry no credentials for the dashboard). It validates every field, limits bodies to 64 KB and reports to 60 per minute per IP. Anyone could send invented reports; treat the data as information, not as proof.
 
 ## Releasing
 

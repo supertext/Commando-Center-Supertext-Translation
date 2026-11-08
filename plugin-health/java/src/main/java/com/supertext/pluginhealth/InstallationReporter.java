@@ -8,10 +8,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -54,6 +58,7 @@ public final class InstallationReporter {
     private final KeyChecker keyChecker;
     private final Transport transport;
     private final Clock clock;
+    private final Supplier<? extends Iterable<Extension>> extensions;
 
     private InstallationReporter(Builder b) {
         this.enabled = b.enabled;
@@ -79,6 +84,7 @@ public final class InstallationReporter {
         this.reportUrl = url == null || url.trim().isEmpty() ? Reporting.DEFAULT_REPORT_URL : url.trim();
         this.transport = b.transport != null ? b.transport : new JdkHttpTransport();
         this.clock = b.clock != null ? b.clock : Clock.systemUTC();
+        this.extensions = b.extensions;
     }
 
     public static Builder builder() {
@@ -102,6 +108,56 @@ public final class InstallationReporter {
 
     /** At most this many named keys are checked and reported; the rest are ignored. */
     public static final int MAX_API_KEYS = 20;
+
+    /** At most this many installed plugins are sent; the rest are left out. */
+    public static final int MAX_EXTENSIONS = 500;
+
+    /**
+     * The installed plugins as they are sent: names and versions trimmed (100 and 50 characters), types in lower
+     * case (30), blank names and repeats (same type and name, ignoring case) dropped, at most {@link #MAX_EXTENSIONS}.
+     */
+    public static List<Extension> normalizeExtensions(Iterable<Extension> extensions) {
+        List<Extension> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        if (extensions == null) {
+            return out;
+        }
+        for (Extension e : extensions) {
+            if (out.size() >= MAX_EXTENSIONS) {
+                break;
+            }
+            if (e == null || e.name() == null) {
+                continue;
+            }
+            String name = cut(e.name().strip(), 100);
+            if (name.isEmpty()) {
+                continue;
+            }
+            String type = e.type() == null ? "" : cut(e.type().strip().toLowerCase(Locale.ROOT), 30);
+            if (!seen.add(type + "\u0000" + name.toLowerCase(Locale.ROOT))) {
+                continue;
+            }
+            String version = e.version() == null ? "" : cut(e.version().strip(), 50);
+            out.add(new Extension(name, version.isEmpty() ? null : version, e.active(), type.isEmpty() ? null : type));
+        }
+        return out;
+    }
+
+    private static String cut(String value, int length) {
+        if (value.length() <= length) {
+            return value;
+        }
+        // Don't split a surrogate pair.
+        return value.substring(0, Character.isHighSurrogate(value.charAt(length - 1)) ? length - 1 : length);
+    }
+
+    /**
+     * The plugin's "Send installed plugins to Supertext" button: sends event {@code extensions} with the list now,
+     * even after a recent failure, but only while reporting is on ({@code sent} false otherwise).
+     */
+    public ReporterResult sendExtensions(ReporterState state, Iterable<Extension> extensions) {
+        return send(orEmpty(state), ReportEvent.EXTENSIONS, normalizeExtensions(extensions));
+    }
 
     /** After the plugin's settings were saved: checks the key, reports {@code installed} or {@code settings_saved}. */
     public ReporterResult afterSettingsSaved(ReporterState state, String apiKey) {
@@ -173,11 +229,19 @@ public final class InstallationReporter {
 
     /** Sends a {@code check} report now (commands, tests), even within the failure backoff. */
     public ReporterResult reportCheck(ReporterState state) {
-        return send(orEmpty(state), ReportEvent.CHECK);
+        return send(orEmpty(state), ReportEvent.CHECK, null);
     }
 
     /** The report body for an event and state (JSON: {@code Json} order, nested maps). */
     public Map<String, Object> buildReport(ReportEvent event, ReporterState state) {
+        return buildReport(event, state, null);
+    }
+
+    /**
+     * The report body for an event and state with the installed plugins to send ({@code null}: those of the
+     * builder's {@code extensions} function, if any).
+     */
+    public Map<String, Object> buildReport(ReportEvent event, ReporterState state, List<Extension> extensionList) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("schema", 1);
         body.put("event", event.value());
@@ -209,12 +273,46 @@ public final class InstallationReporter {
             callback.put("url", callbackUrl);
             body.put("callback", callback);
         }
+        List<Extension> list = extensionList != null ? extensionList : configuredExtensions();
+        if (list != null) {
+            List<Object> entries = new ArrayList<>();
+            for (Extension e : list) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("name", e.name());
+                if (e.version() != null) {
+                    entry.put("version", e.version());
+                }
+                if (e.active() != null) {
+                    entry.put("active", e.active());
+                }
+                if (e.type() != null) {
+                    entry.put("type", e.type());
+                }
+                entries.add(entry);
+            }
+            body.put("extensions", entries);
+        }
         return body;
+    }
+
+    private List<Extension> configuredExtensions() {
+        if (extensions == null) {
+            return null;
+        }
+        try {
+            return normalizeExtensions(extensions.get());
+        } catch (RuntimeException e) {
+            return null; // never fails the report: the list is extra information
+        }
     }
 
     /** {@link #buildReport(ReportEvent, ReporterState)} as compact JSON. */
     public String buildReportJson(ReportEvent event, ReporterState state) {
         return Json.write(buildReport(event, state));
+    }
+
+    private String buildReportJson(ReportEvent event, ReporterState state, List<Extension> extensionList) {
+        return Json.write(buildReport(event, state, extensionList));
     }
 
     // ---------------------------------------------------------------- internals
@@ -339,10 +437,10 @@ public final class InstallationReporter {
                 // Unreadable time: try again.
             }
         }
-        return send(state, event);
+        return send(state, event, null);
     }
 
-    private ReporterResult send(ReporterState state, ReportEvent event) {
+    private ReporterResult send(ReporterState state, ReportEvent event, List<Extension> extensionList) {
         if (!enabled) {
             return new ReporterResult(state, null, false);
         }
@@ -352,7 +450,7 @@ public final class InstallationReporter {
             headers.put("Content-Type", "application/json");
             headers.put("Accept", "application/json");
             headers.put("User-Agent", "supertext-plugin-health/" + PluginHealthInfo.VERSION + " (java) " + pluginName + "/" + pluginVersion);
-            byte[] body = buildReportJson(event, state).getBytes(StandardCharsets.UTF_8);
+            byte[] body = buildReportJson(event, state, extensionList).getBytes(StandardCharsets.UTF_8);
             int status = transport.send(new Transport.Request("POST", URI.create(reportUrl), headers, body, Reporting.REPORT_TIMEOUT));
             ok = status >= 200 && status < 300;
         } catch (InterruptedException e) {
@@ -420,6 +518,7 @@ public final class InstallationReporter {
         private KeyChecker keyChecker;
         private Transport transport;
         private Clock clock;
+        private Supplier<? extends Iterable<Extension>> extensions;
 
         private Builder() {
         }
@@ -490,6 +589,15 @@ public final class InstallationReporter {
         /** Wall clock for check times and the failure backoff (default {@link Clock#systemUTC()}). */
         public Builder clock(Clock clock) {
             this.clock = clock;
+            return this;
+        }
+
+        /**
+         * Optional: returns the installed plugins, so that every report carries them. Leave it out to send them only
+         * by hand ({@link InstallationReporter#sendExtensions}, the plugin's button): the default.
+         */
+        public Builder extensions(Supplier<? extends Iterable<Extension>> extensions) {
+            this.extensions = extensions;
             return this;
         }
 

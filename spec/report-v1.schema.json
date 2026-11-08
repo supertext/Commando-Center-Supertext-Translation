@@ -9,10 +9,10 @@
   "properties": {
     "schema": { "const": 1 },
     "event": {
-      "description": "Why the report is sent: installed, settings_saved, upgraded (plugin, system or runtime version changed since the last report), api_key_check (the API key check result changed outside a settings save, e.g. a new key from the environment or a translation rejected with 401) or check (sent by a command or test). Other values are stored as given.",
+      "description": "Why the report is sent: installed, settings_saved, upgraded (plugin, system or runtime version changed since the last report), api_key_check (the API key check result changed outside a settings save, e.g. a new key from the environment or a translation rejected with 401) check (sent by a command or test) or extensions (an administrator sent the list of installed plugins with the plugin's button; the report carries extensions). Other values are stored as given.",
       "type": "string",
       "pattern": "^[a-z_]{1,40}$",
-      "examples": ["installed", "settings_saved", "upgraded", "api_key_check", "check"]
+      "examples": ["installed", "settings_saved", "upgraded", "api_key_check", "check", "extensions"]
     },
     "site_url": {
       "description": "Base URL of the installation (the site or back end the plugin runs in). It identifies the installation; the center normalizes it (see site-url-vectors.json).",
@@ -82,6 +82,21 @@
           "name": { "description": "What the key is for, as the plugin's settings call it (e.g. \"AI translation\"). Unique within the report, 1 to 60 printable characters. Never the key itself.", "type": "string", "minLength": 1, "maxLength": 60 },
           "configured": { "description": "Whether this key is set.", "type": "boolean" },
           "check": { "description": "The latest check of this key, as api_key_check. Missing or null: not checked yet.", "oneOf": [{ "$ref": "#/properties/api_key_check" }, { "type": "null" }] }
+        }
+      }
+    },
+    "extensions": {
+      "description": "Optional: the other plugins, extensions, modules or themes installed on the site, at most 500. Sent with event extensions when an administrator presses the plugin's button (the default), or with every report if the plugin's developer chose so. Missing: no list (the center keeps the last one). Malformed entries, duplicates (same type and name, ignoring case) and entries past 500 are dropped; a malformed version, active or type is stored as null. The whole report must stay under 64 KB.",
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "description": "As the system shows it (e.g. \"Polylang Pro\", \"Mageplaza_Smtp\"), 1 to 100 printable characters.", "type": "string", "minLength": 1, "maxLength": 100 },
+          "version": { "type": "string", "maxLength": 50 },
+          "active": { "description": "Whether it is enabled. Missing: the system doesn't say.", "type": "boolean" },
+          "type": { "description": "What it is in the system's words, lower case: plugin, theme, module, extension, bundle, package, app, …", "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,29}$" }
         }
       }
     }

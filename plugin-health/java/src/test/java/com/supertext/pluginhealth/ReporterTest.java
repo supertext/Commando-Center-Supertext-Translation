@@ -137,7 +137,28 @@ class ReporterTest {
             Map<String, Object> runtime = map(config.get("runtime"));
             b.runtime(str(runtime.get("name")), str(runtime.get("version")));
         }
+        if (config.get("extensions") != null) {
+            List<Extension> listed = extensions(config.get("extensions"));
+            b.extensions(() -> listed);
+        }
         return b;
+    }
+
+    /** The spec's raw lists: entries without a string name get a null name, other wrong types are left out. */
+    private static List<Extension> extensions(Object value) {
+        List<Extension> out = new ArrayList<>();
+        for (Object o : (List<?>) value) {
+            if (!(o instanceof Map)) {
+                out.add(null);
+                continue;
+            }
+            Map<String, Object> e = map(o);
+            out.add(new Extension(e.get("name") instanceof String ? (String) e.get("name") : null,
+                    e.get("version") instanceof String ? (String) e.get("version") : null,
+                    e.get("active") instanceof Boolean ? (Boolean) e.get("active") : null,
+                    e.get("type") instanceof String ? (String) e.get("type") : null));
+        }
+        return out;
     }
 
     private static String userAgent(Map<String, Object> config) {
@@ -222,6 +243,9 @@ class ReporterTest {
                         break;
                     case "reportCheck":
                         r = reporter.reportCheck(state);
+                        break;
+                    case "sendExtensions":
+                        r = reporter.sendExtensions(state, extensions(step.get("extensions")));
                         break;
                     default:
                         throw new AssertionError("unknown action " + action);
@@ -429,6 +453,30 @@ class ReporterTest {
         Matcher m = Pattern.compile("<artifactId>supertext-plugin-health</artifactId>\\s*<version>([^<]+)</version>").matcher(pom);
         assertTrue(m.find());
         assertEquals(PluginHealthInfo.VERSION, m.group(1));
+    }
+
+    @Test
+    void sendsAtMost500ExtensionsAndCutsLongNames() {
+        List<Extension> listed = new ArrayList<>();
+        listed.add(new Extension("x".repeat(150), "v".repeat(80), null, "P".repeat(40)));
+        for (int n = 0; n < 520; n++) {
+            listed.add(new Extension("Plugin " + n, "1.0"));
+        }
+        List<Extension> out = InstallationReporter.normalizeExtensions(listed);
+        assertEquals(500, out.size());
+        assertEquals(new Extension("x".repeat(100), "v".repeat(50), null, "p".repeat(30)), out.get(0));
+        assertEquals(List.of(new Extension("Über", null, null, "thème")), InstallationReporter.normalizeExtensions(
+                java.util.Arrays.asList(new Extension("Über", null, null, "THÈME"), null, new Extension("über", null, null, "thème"))));
+    }
+
+    @Test
+    void aThrowingExtensionsFunctionLeavesTheListOut() {
+        Fakes f = new Fakes(null, map(Json.parse("{\"status\":202}")));
+        InstallationReporter reporter = configured(CONFIG, f).reportUrl(REPORT_URL).transport(f).extensions(() -> {
+            throw new IllegalStateException("boom");
+        }).build();
+        assertTrue(reporter.reportCheck(null).isSent());
+        assertFalse(map(f.bodies.get(0)).containsKey("extensions"));
     }
 
     @Test

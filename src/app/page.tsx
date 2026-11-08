@@ -59,7 +59,7 @@ export default async function InstallationsPage({ searchParams }: { searchParams
       </div>
 
       <form className="filters" method="get" role="search">
-        <input type="search" name="q" defaultValue={q} placeholder="Search URL, client, system, notes" aria-label="Search" />
+        <input type="search" name="q" defaultValue={q} placeholder="Search URL, client, system, notes, installed plugins" aria-label="Search" />
         <select name="plugin" defaultValue={plugin} aria-label="Plugin">
           <option value="">All plugins</option>
           {plugins.map((p) => (

@@ -6,7 +6,7 @@
 
   <groupId>com.supertext</groupId>
   <artifactId>supertext-plugin-health</artifactId>
-  <version>0.2.0</version>
+  <version>0.3.0</version>
   <packaging>jar</packaging>
 
   <name>Supertext Plugin Health for Java</name>

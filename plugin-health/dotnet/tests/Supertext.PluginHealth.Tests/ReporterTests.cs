@@ -122,6 +122,7 @@ public class ReporterTests
                 "authenticationFailed" => await reporter.AuthenticationFailedAsync(state, apiKey, step.GetProperty("httpStatus").GetInt32()),
                 "testConnection" => await reporter.TestConnectionAsync(state, apiKey),
                 "reportCheck" => await reporter.ReportCheckAsync(state),
+                "sendExtensions" => await reporter.SendExtensionsAsync(state, Extensions(step.GetProperty("extensions"))),
                 _ => throw new InvalidOperationException("unknown action " + action),
             };
             var expect = step.GetProperty("expect");
@@ -266,6 +267,36 @@ public class ReporterTests
     }
 
     [Fact]
+    public void SendsAtMost500ExtensionsAndCutsLongNames()
+    {
+        var list = new List<Extension> { new(new string('x', 150), new string('v', 80), null, new string('P', 40)) };
+        list.AddRange(Enumerable.Range(0, 520).Select(n => new Extension($"Plugin {n}", "1.0")));
+        var output = InstallationReporter.NormalizeExtensions(list);
+        Assert.Equal(500, output.Count);
+        Assert.Equal(new Extension(new string('x', 100), new string('v', 50), null, new string('p', 30)), output[0]);
+        Assert.Equal([new Extension("Über", null, null, "thème")], InstallationReporter.NormalizeExtensions([new("Über", Type: "THÈME"), null, new("über", Type: "thème")]));
+    }
+
+    [Fact]
+    public async Task AThrowingExtensionsFunctionLeavesTheListOut()
+    {
+        var http = new FakeCenter(Answer("""{"status":202}"""));
+        var reporter = new InstallationReporter(new ReporterOptions
+        {
+            Enabled = true,
+            SiteUrl = "https://cms.example.ch",
+            Plugin = new NameVersion("X", "1.0.0"),
+            System = new NameVersion("Y"),
+            KeyChecker = FakeChecker(null),
+            ReportUrl = ReportUrl,
+            HttpClient = new HttpClient(http),
+            Extensions = () => throw new InvalidOperationException("boom"),
+        });
+        Assert.True((await reporter.ReportCheckAsync(null)).Sent);
+        Assert.False(reporter.BuildReport(ReportEvents.Check, ReporterState.Empty).ContainsKey("extensions"));
+    }
+
+    [Fact]
     public async Task ACancelledCallerTokenIsNotSwallowed()
     {
         var checker = KeyChecker.FromDelegates((_, ct) => Task.FromCanceled<KeyCheck>(ct), _ => "fp");
@@ -303,8 +334,21 @@ public class ReporterTests
             ReportUrl = reportUrl,
             HttpClient = new HttpClient(http),
             TimeProvider = clock,
+            Extensions = config["extensions"] is { } list ? () => Extensions(JsonDocument.Parse(list.ToJsonString()).RootElement) : null,
         });
     }
+
+    /// <summary>The spec's raw lists: entries without a string name become null, other wrong types are left out.</summary>
+    private static List<Extension?> Extensions(JsonElement list) =>
+        list.EnumerateArray()
+            .Select(e => e.ValueKind == JsonValueKind.Object && e.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
+                ? new Extension(
+                    n.GetString()!,
+                    e.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null,
+                    e.TryGetProperty("active", out var a) && a.ValueKind is JsonValueKind.True or JsonValueKind.False ? a.GetBoolean() : null,
+                    e.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() : null)
+                : null)
+            .ToList();
 
     /// <summary>Fake key checker: returns the step's keyCheck, fingerprints from the spec's table, records "keyCheck".</summary>
     private static IKeyChecker FakeChecker(KeyCheck? stepCheck, List<string>? calls = null) =>

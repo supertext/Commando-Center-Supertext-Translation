@@ -1,5 +1,5 @@
 {
-  "description": "Supertext Plugin Health: the reporter's state machine and report bodies, the reporting setting and the ping endpoint's answer. Protocol: ../../docs/DEVELOPER.md → Report protocol (the center's spec/ files are its schema and examples). 'defaults': report URL, report timeout, failure backoff. 'enabled': the reporting setting (null = not set, default on) and SUPERTEXT_VERSION_REPORTS (0/false/off/no turns it off, 1/true/on/yes on, anything else or unset leaves the setting). 'ping': the answer of the plugin's ping endpoint (JSON body compared parsed; headers Content-Type: application/json and Cache-Control: no-store on every answer). 'fingerprints': what the plugin's key checker returns as fingerprint for each API key in the scenarios (the SDK computes it: SHA-256 of the key); tests use this table instead of hashing. 'scenarios': the reporter's state machine. The plugin passes a key checker (the SDK's checkApiKey and apiKeyFingerprint); the reporter never talks to Supertext itself. The state is a JSON object the plugin stores as it is: reportedVersions ('<plugin>|<system>|<runtime>' versions last reported, missing parts empty), reportedKeyStatus (key status last reported), lastFailureAt (time of the last failed report), keyCheck (the latest check with the key's fingerprint), and for plugins with several keys keyChecks (the latest check per key name, in the plugin's order) and reportedKeyStatuses (the statuses last reported, by name); with several keys keyCheck is null, with one key keyChecks and reportedKeyStatuses are null. Times are UTC ISO 8601 without fractions ('2026-10-13T08:00:00Z'). Actions: afterSettingsSaved (always checks the key; reports installed if never reported, else settings_saved); onRequest (checks the key only if its fingerprint differs from keyCheck's; then reports installed if never reported, upgraded if the versions changed, api_key_check if the key status differs from reportedKeyStatus, else nothing); authenticationFailed (sets the check to invalid with the given HTTP status, checkedAt now, the key's fingerprint, without calling the checker, then like onRequest); testConnection (always checks the key, then like onRequest); reportCheck (always sends event check, ignoring the throttle). Reports go only when reporting is enabled and not within 3600 s after lastFailureAt (except reportCheck). A report is sent when the center answers 2xx; then reportedVersions and reportedKeyStatus are updated and lastFailureAt cleared; otherwise only lastFailureAt is set to now. The report body: schema 1, event, site_url, plugin, system, runtime, sdk_version, api_key_configured (fingerprint not empty), api_key_check (status, checked_at, http_status and error_code when set), callback.url when a callback URL is configured; fields compared parsed. A step's 'keyCheck' is what the key checker returns when the reporter calls it; 'report' is the center's answer to POST report (status, or transportError). expect.calls lists what was called, in order: keyCheck (the checker) and report (POST to the center). Several keys: a step has 'apiKeys' ({name: key}, in order) instead of 'apiKey' and 'keyChecks' (what the checker returns, one per call in order) instead of 'keyCheck'; the reporter checks each key whose fingerprint differs from its stored check (afterSettingsSaved and testConnection: every key), sends api_keys [{name, configured, check}] instead of api_key_configured and api_key_check, and reports api_key_check when any key's status differs from reportedKeyStatuses or the set of names changed. authenticationFailed takes 'keyName': only that key becomes invalid (without a name: all). expect.check is null and expect.checks the per-key checks; with one key expect.checks is null.",
+  "description": "Supertext Plugin Health: the reporter's state machine and report bodies, the reporting setting and the ping endpoint's answer. Protocol: ../../docs/DEVELOPER.md → Report protocol (the center's spec/ files are its schema and examples). 'defaults': report URL, report timeout, failure backoff. 'enabled': the reporting setting (null = not set, default on) and SUPERTEXT_VERSION_REPORTS (0/false/off/no turns it off, 1/true/on/yes on, anything else or unset leaves the setting). 'ping': the answer of the plugin's ping endpoint (JSON body compared parsed; headers Content-Type: application/json and Cache-Control: no-store on every answer). 'fingerprints': what the plugin's key checker returns as fingerprint for each API key in the scenarios (the SDK computes it: SHA-256 of the key); tests use this table instead of hashing. 'scenarios': the reporter's state machine. The plugin passes a key checker (the SDK's checkApiKey and apiKeyFingerprint); the reporter never talks to Supertext itself. The state is a JSON object the plugin stores as it is: reportedVersions ('<plugin>|<system>|<runtime>' versions last reported, missing parts empty), reportedKeyStatus (key status last reported), lastFailureAt (time of the last failed report), keyCheck (the latest check with the key's fingerprint), and for plugins with several keys keyChecks (the latest check per key name, in the plugin's order) and reportedKeyStatuses (the statuses last reported, by name); with several keys keyCheck is null, with one key keyChecks and reportedKeyStatuses are null. Times are UTC ISO 8601 without fractions ('2026-10-13T08:00:00Z'). Actions: afterSettingsSaved (always checks the key; reports installed if never reported, else settings_saved); onRequest (checks the key only if its fingerprint differs from keyCheck's; then reports installed if never reported, upgraded if the versions changed, api_key_check if the key status differs from reportedKeyStatus, else nothing); authenticationFailed (sets the check to invalid with the given HTTP status, checkedAt now, the key's fingerprint, without calling the checker, then like onRequest); testConnection (always checks the key, then like onRequest); reportCheck (always sends event check, ignoring the throttle). Reports go only when reporting is enabled and not within 3600 s after lastFailureAt (except reportCheck). A report is sent when the center answers 2xx; then reportedVersions and reportedKeyStatus are updated and lastFailureAt cleared; otherwise only lastFailureAt is set to now. The report body: schema 1, event, site_url, plugin, system, runtime, sdk_version, api_key_configured (fingerprint not empty), api_key_check (status, checked_at, http_status and error_code when set), callback.url when a callback URL is configured; fields compared parsed. A step's 'keyCheck' is what the key checker returns when the reporter calls it; 'report' is the center's answer to POST report (status, or transportError). expect.calls lists what was called, in order: keyCheck (the checker) and report (POST to the center). Several keys: a step has 'apiKeys' ({name: key}, in order) instead of 'apiKey' and 'keyChecks' (what the checker returns, one per call in order) instead of 'keyCheck'; the reporter checks each key whose fingerprint differs from its stored check (afterSettingsSaved and testConnection: every key), sends api_keys [{name, configured, check}] instead of api_key_configured and api_key_check, and reports api_key_check when any key's status differs from reportedKeyStatuses or the set of names changed. authenticationFailed takes 'keyName': only that key becomes invalid (without a name: all). expect.check is null and expect.checks the per-key checks; with one key expect.checks is null. Installed plugins: sendExtensions (a step with 'extensions', the list the plugin passes) always sends event extensions with the list, ignoring the throttle like reportCheck, but only with reporting enabled; it checks no key. The list in the body: at most 500 entries {name, version, active, type}, name trimmed and cut to 100 characters (blank names dropped), version trimmed and cut to 50 (left out when blank), active only when it is a boolean, type trimmed, lower case, cut to 30 (left out when blank); a repeat of the same type and name (ignoring case) is dropped. A scenario config 'extensions' stands for an extensions function the plugin gives the reporter: every report then carries that list.",
   "defaults": {
     "reportUrl": "https://pluginhealth.supertext.com/api/v1/report",
     "reportTimeoutSeconds": 3,
@@ -1980,6 +1980,325 @@
               "keyCheck",
               "report"
             ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "sendExtensions sends the installed plugins on demand (event extensions), even while failures are throttled; names and versions trimmed, types in lower case, blank names and repeats dropped",
+      "state": {
+        "reportedVersions": "0.2.0|12.0.0|22.11.0",
+        "reportedKeyStatus": "ok",
+        "lastFailureAt": "2026-10-13T11:55:00Z",
+        "keyCheck": {
+          "status": "ok",
+          "checkedAt": "2026-10-13T08:00:00Z",
+          "httpStatus": 200,
+          "errorCode": null,
+          "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+        },
+        "keyChecks": null,
+        "reportedKeyStatuses": null
+      },
+      "steps": [
+        {
+          "action": "sendExtensions",
+          "apiKey": "k1",
+          "extensions": [
+            {
+              "name": "  Polylang Pro ",
+              "version": " 3.7.2 ",
+              "active": true,
+              "type": " Plugin "
+            },
+            {
+              "name": "polylang pro",
+              "version": "3.7.3",
+              "active": true,
+              "type": "plugin"
+            },
+            {
+              "name": "Yoast SEO",
+              "version": "",
+              "active": true,
+              "type": "plugin"
+            },
+            {
+              "name": "   ",
+              "version": "1.0"
+            },
+            {
+              "name": "Akismet Anti-spam",
+              "version": "5.3",
+              "active": false
+            },
+            {
+              "name": "Twenty Twenty-Five",
+              "version": "1.2",
+              "active": true,
+              "type": "theme"
+            },
+            {
+              "name": "Polylang Pro",
+              "version": "3.7.2",
+              "active": true,
+              "type": "theme"
+            }
+          ],
+          "now": "2026-10-13T12:00:00Z",
+          "report": {
+            "status": 202
+          },
+          "expect": {
+            "event": "extensions",
+            "sent": true,
+            "check": {
+              "status": "ok",
+              "checkedAt": "2026-10-13T08:00:00Z",
+              "httpStatus": 200,
+              "errorCode": null,
+              "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+            },
+            "checks": null,
+            "state": {
+              "reportedVersions": "0.2.0|12.0.0|22.11.0",
+              "reportedKeyStatus": "ok",
+              "lastFailureAt": null,
+              "keyCheck": {
+                "status": "ok",
+                "checkedAt": "2026-10-13T08:00:00Z",
+                "httpStatus": 200,
+                "errorCode": null,
+                "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
+            },
+            "reportBody": {
+              "schema": 1,
+              "event": "extensions",
+              "site_url": "https://cms.example.ch",
+              "plugin": {
+                "name": "Directus-Supertext-Translation",
+                "version": "0.2.0"
+              },
+              "system": {
+                "name": "Directus",
+                "version": "12.0.0"
+              },
+              "runtime": {
+                "name": "Node.js",
+                "version": "22.11.0"
+              },
+              "sdk_version": "0.3.0",
+              "api_key_configured": true,
+              "api_key_check": {
+                "status": "ok",
+                "checked_at": "2026-10-13T08:00:00Z",
+                "http_status": 200
+              },
+              "callback": {
+                "url": "https://cms.example.ch/supertext/ping"
+              },
+              "extensions": [
+                {
+                  "name": "Polylang Pro",
+                  "version": "3.7.2",
+                  "active": true,
+                  "type": "plugin"
+                },
+                {
+                  "name": "Yoast SEO",
+                  "active": true,
+                  "type": "plugin"
+                },
+                {
+                  "name": "Akismet Anti-spam",
+                  "version": "5.3",
+                  "active": false
+                },
+                {
+                  "name": "Twenty Twenty-Five",
+                  "version": "1.2",
+                  "active": true,
+                  "type": "theme"
+                },
+                {
+                  "name": "Polylang Pro",
+                  "version": "3.7.2",
+                  "active": true,
+                  "type": "theme"
+                }
+              ]
+            },
+            "calls": [
+              "report"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "sendExtensions with reporting off sends nothing",
+      "config": {
+        "enabled": false
+      },
+      "state": {
+        "reportedVersions": "0.2.0|12.0.0|22.11.0",
+        "reportedKeyStatus": "ok",
+        "lastFailureAt": null,
+        "keyCheck": {
+          "status": "ok",
+          "checkedAt": "2026-10-13T08:00:00Z",
+          "httpStatus": 200,
+          "errorCode": null,
+          "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+        },
+        "keyChecks": null,
+        "reportedKeyStatuses": null
+      },
+      "steps": [
+        {
+          "action": "sendExtensions",
+          "apiKey": "k1",
+          "extensions": [
+            {
+              "name": "  Polylang Pro ",
+              "version": " 3.7.2 ",
+              "active": true,
+              "type": " Plugin "
+            }
+          ],
+          "now": "2026-10-13T12:00:00Z",
+          "expect": {
+            "event": null,
+            "sent": false,
+            "check": {
+              "status": "ok",
+              "checkedAt": "2026-10-13T08:00:00Z",
+              "httpStatus": 200,
+              "errorCode": null,
+              "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+            },
+            "checks": null,
+            "state": {
+              "reportedVersions": "0.2.0|12.0.0|22.11.0",
+              "reportedKeyStatus": "ok",
+              "lastFailureAt": null,
+              "keyCheck": {
+                "status": "ok",
+                "checkedAt": "2026-10-13T08:00:00Z",
+                "httpStatus": 200,
+                "errorCode": null,
+                "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
+            },
+            "calls": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "with an extensions function (the developer's choice) every report carries the list",
+      "config": {
+        "extensions": [
+          {
+            "name": "Directus Extension Foo",
+            "version": "1.0.0",
+            "active": true,
+            "type": "extension"
+          }
+        ]
+      },
+      "state": {
+        "reportedVersions": null,
+        "reportedKeyStatus": null,
+        "lastFailureAt": null,
+        "keyCheck": null,
+        "keyChecks": null,
+        "reportedKeyStatuses": null
+      },
+      "steps": [
+        {
+          "action": "afterSettingsSaved",
+          "apiKey": "Supertext-Auth-Key k1",
+          "now": "2026-10-13T08:00:00Z",
+          "report": {
+            "status": 202
+          },
+          "keyCheck": {
+            "status": "ok",
+            "checkedAt": "2026-10-13T08:00:00Z",
+            "httpStatus": 200,
+            "errorCode": null,
+            "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+          },
+          "expect": {
+            "event": "installed",
+            "sent": true,
+            "check": {
+              "status": "ok",
+              "checkedAt": "2026-10-13T08:00:00Z",
+              "httpStatus": 200,
+              "errorCode": null,
+              "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+            },
+            "state": {
+              "reportedVersions": "0.2.0|12.0.0|22.11.0",
+              "reportedKeyStatus": "ok",
+              "lastFailureAt": null,
+              "keyCheck": {
+                "status": "ok",
+                "checkedAt": "2026-10-13T08:00:00Z",
+                "httpStatus": 200,
+                "errorCode": null,
+                "fingerprint": "6ab9f1eb8f7d3388f4f9d586f66e99fd54080df2c446f0e58668b09c08a16dd0"
+              },
+              "keyChecks": null,
+              "reportedKeyStatuses": null
+            },
+            "reportBody": {
+              "schema": 1,
+              "event": "installed",
+              "site_url": "https://cms.example.ch",
+              "plugin": {
+                "name": "Directus-Supertext-Translation",
+                "version": "0.2.0"
+              },
+              "system": {
+                "name": "Directus",
+                "version": "12.0.0"
+              },
+              "runtime": {
+                "name": "Node.js",
+                "version": "22.11.0"
+              },
+              "sdk_version": "0.3.0",
+              "api_key_configured": true,
+              "api_key_check": {
+                "status": "ok",
+                "checked_at": "2026-10-13T08:00:00Z",
+                "http_status": 200
+              },
+              "callback": {
+                "url": "https://cms.example.ch/supertext/ping"
+              },
+              "extensions": [
+                {
+                  "name": "Directus Extension Foo",
+                  "version": "1.0.0",
+                  "active": true,
+                  "type": "extension"
+                }
+              ]
+            },
+            "calls": [
+              "keyCheck",
+              "report"
+            ],
+            "checks": null
           }
         }
       ]

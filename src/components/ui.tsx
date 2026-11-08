@@ -67,6 +67,7 @@ export const EVENT_LABEL: Record<string, string> = {
   upgraded: 'upgraded',
   api_key_check: 'key checked',
   check: 'check',
+  extensions: 'plugins sent',
 };
 
 const KEY_LABEL: Record<string, { label: string; cls: string; hint: string }> = {

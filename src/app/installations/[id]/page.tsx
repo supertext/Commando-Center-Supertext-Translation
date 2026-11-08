@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
 import { getInstallation, installationHistory, listClients, pingHistory, type Installation, type ReportRow } from '@/lib/db';
 import { latestRelease, repoUrl } from '@/lib/releases';
+import { extensionChanges, sortExtensions } from '@/lib/extensions';
 import { CallbackStatus, EVENT_LABEL, KeyStatus, NameVersion, PluginVersion, ago, formatDate, keyStatusWord } from '@/components/ui';
 import ConfirmButton from '@/components/confirm-button';
 import { pingNow, removeInstallation, saveInstallation } from '../../actions';
@@ -11,6 +12,17 @@ export const dynamic = 'force-dynamic';
 
 /** What changed in a report compared with the reports before it (history is newest first). */
 function changes(history: ReportRow[], k: number, i: Installation): string[] {
+  const out = versionAndKeyChanges(history, k, i);
+  const row = history[k];
+  // Installed plugins: compared with the last report that carried a list.
+  if (row.extensions) {
+    const prev = history.slice(k + 1).find((h) => h.extensions)?.extensions ?? null;
+    out.push(...extensionChanges(prev, row.extensions));
+  }
+  return out;
+}
+
+function versionAndKeyChanges(history: ReportRow[], k: number, i: Installation): string[] {
   const row = history[k];
   const before = history[k + 1];
   if (!before) return row.api_key_status ? ['first report', `API key ${keyStatusWord(row.api_key_status)}`] : ['first report'];
@@ -262,6 +274,54 @@ export default async function InstallationPage({
               </tbody>
             </table>
           </div>
+        )}
+      </section>
+
+      <h2 id="extensions">Installed plugins</h2>
+      <section className="card" aria-labelledby="extensions">
+        {i.extensions === null ? (
+          <p className="muted" style={{ padding: '14px 20px', margin: 0 }}>
+            Not sent. The site&apos;s administrator sends the list of the other plugins installed on the site with the
+            button in the Supertext plugin&apos;s settings (plugins with Plugin Health 0.3 or newer).
+          </p>
+        ) : (
+          <>
+            <p className="small" style={{ padding: '14px 20px 0', margin: 0 }}>
+              {i.extensions.length} {i.extensions.length === 1 ? 'plugin' : 'plugins'},{' '}
+              {i.extensions.filter((e) => e.active !== false).length} active · sent{' '}
+              {i.extensions_at ? `${formatDate(i.extensions_at)} (${ago(i.extensions_at)})` : '–'}
+            </p>
+            {i.extensions.length > 0 && (
+              <div className="table-wrap" style={{ marginTop: 12, borderTop: '1px solid var(--line)' }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Type</th>
+                      <th>Version</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortExtensions(i.extensions).map((e) => (
+                      <tr key={`${e.type ?? ''}:${e.name}`}>
+                        <td>{e.name}</td>
+                        <td className="muted">{e.type ?? '–'}</td>
+                        <td className="mono">{e.version ?? '–'}</td>
+                        <td>
+                          {e.active === null ? (
+                            <span className="muted">–</span>
+                          ) : (
+                            <span className={`badge ${e.active ? 'current' : 'unknown'}`}>{e.active ? 'active' : 'inactive'}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </section>
 

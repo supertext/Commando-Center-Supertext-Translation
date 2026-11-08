@@ -11,7 +11,9 @@ public enum ReportEvent {
     /** The API key's status changed. */
     API_KEY_CHECK("api_key_check"),
     /** Sent on demand ({@link InstallationReporter#reportCheck(ReporterState)}). */
-    CHECK("check");
+    CHECK("check"),
+    /** The list of installed plugins was sent ({@link InstallationReporter#sendExtensions}). */
+    EXTENSIONS("extensions");
 
     private final String value;
 
@@ -19,7 +21,7 @@ public enum ReportEvent {
         this.value = value;
     }
 
-    /** {@code installed}, {@code settings_saved}, {@code upgraded}, {@code api_key_check} or {@code check}. */
+    /** {@code installed}, {@code settings_saved}, {@code upgraded}, {@code api_key_check}, {@code check} or {@code extensions}. */
     public String value() {
         return value;
     }
