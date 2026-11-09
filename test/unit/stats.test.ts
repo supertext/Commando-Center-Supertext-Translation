@@ -30,6 +30,7 @@ const row = (o: Partial<StatsRow>): StatsRow => ({
   api_key_status: 'ok',
   callback_status: 'reachable',
   client_id: null,
+  first_seen: new Date('2026-10-20T00:00:00Z'),
   last_seen: now,
   extensions: null,
   languages: null,
@@ -127,5 +128,29 @@ describe('language mappings', () => {
       { code: 'en_IE', supertext: null, installations: 1 },
       { code: 'fr_FR', supertext: 'fr-FR', installations: 1 },
     ]);
+  });
+});
+
+describe('growth', () => {
+  const rows = [
+    row({ first_seen: new Date('2026-08-15T00:00:00Z') }),
+    row({ first_seen: new Date('2026-08-31T23:00:00Z') }),
+    row({ first_seen: '2026-10-02T00:00:00Z' }),
+    row({ plugin: 'Other', first_seen: new Date('2026-11-01T00:00:00Z') }),
+  ];
+  const s = computeStats(rows, new Map(), false, now);
+
+  it('lists every month from the first installation to now, with the running total', () => {
+    expect(s.totals.growth).toEqual([
+      { month: '2026-08', new: 2, total: 2 },
+      { month: '2026-09', new: 0, total: 2 },
+      { month: '2026-10', new: 1, total: 3 },
+      { month: '2026-11', new: 1, total: 4 },
+    ]);
+    expect(s.plugins.find((p) => p.plugin === 'Other')?.growth).toEqual([{ month: '2026-11', new: 1, total: 1 }]);
+  });
+
+  it('is empty without installations', () => {
+    expect(computeStats([], new Map(), false, now).totals.growth).toEqual([]);
   });
 });

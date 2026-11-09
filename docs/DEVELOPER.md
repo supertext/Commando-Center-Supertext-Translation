@@ -269,7 +269,7 @@ curl -H "Authorization: Bearer $COMMANDO_STATS_TOKEN" https://pluginhealth.super
   "generated_at": "2026-11-09T12:00:00.000Z",
   "active_days": 30,
   "include_local": false,
-  "totals": { "installations": 42, "active": 37, "up_to_date": 30, "outdated": 9, "api_key_problem": 2, "unreachable": 3, "with_client": 25, "plugins": 12, "extensions": { "...": "as per plugin" }, "languages": { "...": "as per plugin" } },
+  "totals": { "installations": 42, "active": 37, "up_to_date": 30, "outdated": 9, "api_key_problem": 2, "unreachable": 3, "with_client": 25, "plugins": 12, "extensions": { "...": "as per plugin" }, "languages": { "...": "as per plugin" }, "growth": [{ "month": "2026-10", "new": 30, "total": 30 }, { "month": "2026-11", "new": 12, "total": 42 }] },
   "plugins": [
     {
       "plugin": "Strapi-Supertext-Translation",
@@ -292,7 +292,8 @@ curl -H "Authorization: Bearer $COMMANDO_STATS_TOKEN" https://pluginhealth.super
         "per_site": { "min": 2, "median": 2.5, "mean": 2.5, "max": 3 },
         "supertext": [{ "value": "de-CH", "installations": 2 }, { "value": "fr-FR", "installations": 1 }],
         "mappings": [{ "code": "de_CH", "supertext": "de-CH", "installations": 2 }, { "code": "en_IE", "supertext": null, "installations": 1 }]
-      }
+      },
+      "growth": [{ "month": "2026-10", "new": 2, "total": 2 }, { "month": "2026-11", "new": 1, "total": 3 }]
     }
   ]
 }
@@ -309,6 +310,7 @@ curl -H "Authorization: Bearer $COMMANDO_STATS_TOKEN" https://pluginhealth.super
 | `versions`, `system_versions`, `runtimes`, `sdk_versions`, `api_key_status` | Installations per value, most first; `null` = not reported (or the key not checked yet) |
 | `extensions` | How many other plugins the sites have installed (see *Installed plugins*): `reported` = installations that sent their list; `installed` and `active` = min, median, mean (one decimal) and max per site, `null` while no list was sent (`active` only over lists that say which are active); `by_type` = per type (`plugin`, `theme`, `mu-plugin`, …, `null` = not given) the installations listing at least one and how many each lists. Counts only, never names |
 | `languages` | The plugins' language mappings (see *Language mapping*): `reported` = installations that sent one; `with_unmapped` = of those, installations with at least one language without a Supertext code; `per_site` = languages per site (min, median, mean, max); `supertext` = installations using each Supertext code (a site counts once per code); `mappings` = installations per system code and the Supertext code it maps to (`null` = not mapped) |
+| `growth` | New installations per calendar month (UTC) by their first report, from the first month to the current one, with the running `total`. Counts the installations as they are now: a deleted installation is gone from the past months too |
 
 Plugins are sorted by installations. New fields may be added; clients should ignore what they don't know.
 

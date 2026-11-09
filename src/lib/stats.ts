@@ -39,6 +39,7 @@ export interface StatsRow {
   api_key_status: string | null;
   callback_status: string | null;
   client_id: number | null;
+  first_seen: Date | string;
   last_seen: Date | string;
   /** Only the counts are used: names never leave this module. */
   extensions: Extension[] | null;
@@ -48,7 +49,7 @@ export interface StatsRow {
 export async function loadStatsRows(includeLocal: boolean, sql: Sql = db()): Promise<StatsRow[]> {
   return sql<StatsRow[]>`
     SELECT plugin, plugin_version, system, system_version, runtime, runtime_version, sdk_version,
-           api_key_status, callback_status, client_id, last_seen, extensions, languages
+           api_key_status, callback_status, client_id, first_seen, last_seen, extensions, languages
     FROM installations
     ${includeLocal ? sql`` : sql`WHERE NOT local`}`;
 }
@@ -100,6 +101,13 @@ export interface LanguageStats {
   mappings: Array<{ code: string; supertext: string | null; installations: number }>;
 }
 
+/** New installations per calendar month (UTC, by first report), with the running total. */
+export interface GrowthPoint {
+  month: string;
+  new: number;
+  total: number;
+}
+
 export interface PluginStats extends Totals {
   plugin: string;
   latest_release: string | null;
@@ -110,13 +118,14 @@ export interface PluginStats extends Totals {
   api_key_status: Count[];
   extensions: ExtensionStats;
   languages: LanguageStats;
+  growth: GrowthPoint[];
 }
 
 export interface Stats {
   generated_at: string;
   active_days: number;
   include_local: boolean;
-  totals: Totals & { plugins: number; extensions: ExtensionStats; languages: LanguageStats };
+  totals: Totals & { plugins: number; extensions: ExtensionStats; languages: LanguageStats; growth: GrowthPoint[] };
   plugins: PluginStats[];
 }
 
@@ -179,6 +188,27 @@ export function languageStats(rows: StatsRow[]): LanguageStats {
   };
 }
 
+/** Months from the first installation to `now`, each with the installations first seen in it. */
+export function growth(rows: StatsRow[], now = new Date()): GrowthPoint[] {
+  if (rows.length === 0) return [];
+  const month = (d: Date) => d.toISOString().slice(0, 7);
+  const perMonth = new Map<string, number>();
+  for (const r of rows) {
+    const m = month(new Date(r.first_seen));
+    perMonth.set(m, (perMonth.get(m) ?? 0) + 1);
+  }
+  const first = [...perMonth.keys()].sort()[0];
+  const end = month(now);
+  const out: GrowthPoint[] = [];
+  let total = 0;
+  for (const cursor = new Date(`${first}-01T00:00:00Z`); month(cursor) <= end; cursor.setUTCMonth(cursor.getUTCMonth() + 1)) {
+    const m = month(cursor);
+    total += perMonth.get(m) ?? 0;
+    out.push({ month: m, new: perMonth.get(m) ?? 0, total });
+  }
+  return out;
+}
+
 function join(name: string | null, version: string | null): string | null {
   if (!name) return null;
   return version ? `${name} ${version}` : name;
@@ -216,6 +246,7 @@ export function computeStats(rows: StatsRow[], latest: Map<string, string | null
         api_key_status: counts(list.map((r) => r.api_key_status)),
         extensions: extensionStats(list),
         languages: languageStats(list),
+        growth: growth(list, now),
       };
     })
     .sort((a, b) => b.installations - a.installations || a.plugin.localeCompare(b.plugin));
@@ -232,7 +263,7 @@ export function computeStats(rows: StatsRow[], latest: Map<string, string | null
     generated_at: now.toISOString(),
     active_days: ACTIVE_DAYS,
     include_local: includeLocal,
-    totals: { ...all, plugins: plugins.length, extensions: extensionStats(rows), languages: languageStats(rows) },
+    totals: { ...all, plugins: plugins.length, extensions: extensionStats(rows), languages: languageStats(rows), growth: growth(rows, now) },
     plugins,
   };
 }
