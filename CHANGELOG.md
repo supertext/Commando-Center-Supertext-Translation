@@ -12,6 +12,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 ### Changed
 
+- The latest release of each plugin is looked up on GitHub once a day instead of once an hour (a redeploy clears the cache).
 - The WordPress plugin's release and repository links point to its renamed repository, `Wordpress-Polylang-Supertext-Translation`.
 - Browser tab title: *Plugin Health | Supertext*.
 - Renamed from *Commando Center* to **Supertext Plugin Health**, like the library the plugins use to report to it. Only the name changes: settings (`COMMANDO_*`), cookies, the database, the repository and the address stay the same. The suggested Person Service client ID is `Supertext.PluginHealth.Admin.UI`.

@@ -9,7 +9,7 @@ The dashboard was called *Commando Center* until November 2026. Technical names 
 - **Next.js 16** (App Router, server components and server actions), TypeScript, Node.js 22, built as a standalone server (`output: 'standalone'`).
 - **PostgreSQL** through [`postgres`](https://github.com/porsager/postgres) (no ORM). Plain SQL migrations in `migrations/`, applied by `scripts/migrate.mjs` before every start.
 - **Sign-in with Supertext accounts** through Supertext's Person Service (OpenID Connect, see *Sign-in* below). There is no other way in (no shared password). Every page and every server action calls `requireAuth()`. Only `/api/v1/report`, `/health`, `/login`, `/auth/login` and `/auth/callback` are public.
-- **Latest releases** come from the GitHub API (`Supertext/<plugin>` → newest non-draft release, pre-releases included, because 0.x versions are published as pre-releases). Cached for an hour in memory; errors are cached for 10 minutes. `GITHUB_TOKEN` raises the rate limit.
+- **Latest releases** come from the GitHub API (`Supertext/<plugin>` → newest non-draft release, pre-releases included, because 0.x versions are published as pre-releases). Cached for 24 hours in memory (a redeploy clears it); errors are cached for 10 minutes. `GITHUB_TOKEN` raises the rate limit.
 
 | Path | What it is |
 | --- | --- |

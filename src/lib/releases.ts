@@ -3,7 +3,7 @@
  * The plugins publish 0.x versions as pre-releases, so /releases/latest (which skips them)
  * isn't enough: take the newest non-draft release from the list. Cached in memory.
  */
-const TTL_MS = 60 * 60 * 1000;
+const TTL_MS = 24 * 60 * 60 * 1000;
 const FAIL_TTL_MS = 10 * 60 * 1000;
 const cache = new Map<string, { at: number; ttl: number; version: string | null }>();
 
