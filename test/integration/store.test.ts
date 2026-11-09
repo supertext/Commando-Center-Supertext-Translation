@@ -385,3 +385,52 @@ describe('report endpoint and store', () => {
     expect(await store.installationHistory(i.id)).toEqual([]);
   });
 });
+
+describe('statistics API', () => {
+  const TOKEN = 's'.repeat(40);
+  let stats: typeof import('../../src/app/api/v1/stats/route');
+  const get = (auth: string | null, query = '', ip = '198.51.100.40') =>
+    stats.GET(new Request(`http://center.test/api/v1/stats${query}`, { headers: { 'x-forwarded-for': ip, ...(auth ? { authorization: auth } : {}) } }));
+
+  beforeAll(async () => {
+    process.env.GITHUB_API_URL = 'http://127.0.0.1:9'; // no GitHub from tests: latest release unknown
+    stats = await import('../../src/app/api/v1/stats/route');
+  });
+  afterAll(() => {
+    delete process.env.COMMANDO_STATS_TOKEN;
+  });
+
+  it('is off while no token is configured', async () => {
+    delete process.env.COMMANDO_STATS_TOKEN;
+    expect((await get(`Bearer ${TOKEN}`)).status).toBe(404);
+  });
+
+  it('needs the token, then returns totals without sites', async () => {
+    process.env.COMMANDO_STATS_TOKEN = TOKEN;
+    const denied = await get(null);
+    expect(denied.status).toBe(401);
+    expect(denied.headers.get('www-authenticate')).toBe('Bearer');
+    expect((await get('Bearer wrong')).status).toBe(401);
+
+    const res = await get(`Bearer ${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const body = await res.json();
+    const all = await store.listInstallations();
+    expect(body.totals.installations).toBe(all.length);
+    const typo3 = all.filter((i) => i.plugin === 'Typo3-Supertext-Translation').length;
+    expect(body.plugins.find((p: { plugin: string }) => p.plugin === 'Typo3-Supertext-Translation')).toMatchObject({ installations: typo3 });
+    expect(JSON.stringify(body)).not.toContain('kunde.ch');
+
+    const withLocal = await (await get(`Bearer ${TOKEN}`, '?local=1')).json();
+    expect(withLocal.totals.installations).toBe((await store.listInstallations({ includeLocal: true })).length);
+  });
+
+  it('stops guessing after 10 wrong tokens a minute', async () => {
+    process.env.COMMANDO_STATS_TOKEN = TOKEN;
+    const statuses: number[] = [];
+    for (let k = 0; k < 11; k++) statuses.push((await get('Bearer nope', '', '198.51.100.41')).status);
+    expect(statuses.slice(0, 10).every((s) => s === 401)).toBe(true);
+    expect(statuses.at(-1)).toBe(429);
+  });
+});

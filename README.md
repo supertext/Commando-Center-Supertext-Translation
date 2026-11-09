@@ -20,7 +20,7 @@ The plugin side lives here too: the [Plugin Health library](plugin-health/README
 
 - [Installation guide](docs/INSTALLATION.md): deploy on Railway, settings, update, troubleshooting
 - [User guide](docs/USER_GUIDE.md): installations, history, mapping to clients
-- [Developer guide](docs/DEVELOPER.md): the report protocol every plugin implements, architecture, tests, releasing
+- [Developer guide](docs/DEVELOPER.md): the report protocol every plugin implements, the statistics API, architecture, tests, releasing
 
 The protocol's JSON schema and test vectors are in [`spec/`](spec/).
 

@@ -8,12 +8,13 @@ The dashboard was called *Commando Center* until November 2026. Technical names 
 
 - **Next.js 16** (App Router, server components and server actions), TypeScript, Node.js 22, built as a standalone server (`output: 'standalone'`).
 - **PostgreSQL** through [`postgres`](https://github.com/porsager/postgres) (no ORM). Plain SQL migrations in `migrations/`, applied by `scripts/migrate.mjs` before every start.
-- **Sign-in with Supertext accounts** through Supertext's Person Service (OpenID Connect, see *Sign-in* below). There is no other way in (no shared password). Every page and every server action calls `requireAuth()`. Only `/api/v1/report`, `/health`, `/login`, `/auth/login` and `/auth/callback` are public.
+- **Sign-in with Supertext accounts** through Supertext's Person Service (OpenID Connect, see *Sign-in* below). There is no other way in (no shared password). Every page and every server action calls `requireAuth()`. Only `/api/v1/report`, `/health`, `/login`, `/auth/login` and `/auth/callback` are public; `/api/v1/stats` needs its own token (see *Statistics API*).
 - **Latest releases** come from the GitHub API (`Supertext/<plugin>` → newest non-draft release, pre-releases included, because 0.x versions are published as pre-releases). Cached for 24 hours in memory (a redeploy clears it); errors are cached for 10 minutes. `GITHUB_TOKEN` raises the rate limit.
 
 | Path | What it is |
 | --- | --- |
 | `src/app/api/v1/report/route.ts` | The report endpoint |
+| `src/app/api/v1/stats/route.ts`, `src/lib/stats.ts` | The statistics API (totals only, token in `COMMANDO_STATS_TOKEN`) |
 | `src/app/page.tsx` | Installations list with filters and counts |
 | `src/app/installations/[id]/page.tsx` | One installation: latest state, client mapping, notes, history |
 | `src/app/clients/…` | Clients list and client page |
@@ -221,6 +222,53 @@ The *Translation proxy* tab shows which plugins send their translations through 
 - `COMMANDO_PROXY_URL` is set by staff, like `GITHUB_API_URL`; it never comes from a report, so the callback ping's guard doesn't apply. Use the proxy's public URL.
 - The proxy knows plugins by API key, not by site URL, so its rows aren't joined with the installations. Joining them would need the plugins to report their key fingerprint (a protocol change in Plugin Health).
 
+## Statistics API
+
+`GET /api/v1/stats` gives the totals the dashboard shows, per plugin, for reports, spreadsheets or other tools. Totals only: no site URLs, client names, notes, IP addresses or installed plugins.
+
+- **Off** until `COMMANDO_STATS_TOKEN` is set in Railway (at least 32 characters, `openssl rand -base64 48`); then `404`.
+- **One shared token**, sent as `Authorization: Bearer <token>` (never in the URL, where it would land in logs). Compared in constant time (SHA-256 of both sides). Missing or wrong: `401` with `WWW-Authenticate: Bearer`. To revoke or rotate it, change the variable (Railway redeploys); everyone using it needs the new one.
+- **Limits:** 60 requests per minute per address, and 10 wrong tokens per minute per address (then `429`). Answers carry `Cache-Control: no-store`.
+- **Parameters:** `?local=1` includes local and test installations (localhost, `*.test`, …), like the dashboard's filter. Without it they're left out.
+
+```bash
+curl -H "Authorization: Bearer $COMMANDO_STATS_TOKEN" https://pluginhealth.supertext.com/api/v1/stats
+```
+
+```json
+{
+  "ok": true,
+  "generated_at": "2026-11-09T12:00:00.000Z",
+  "active_days": 30,
+  "include_local": false,
+  "totals": { "installations": 42, "active": 37, "up_to_date": 30, "outdated": 9, "api_key_problem": 2, "unreachable": 3, "with_client": 25, "plugins": 12 },
+  "plugins": [
+    {
+      "plugin": "Strapi-Supertext-Translation",
+      "latest_release": "0.5.0",
+      "installations": 3, "active": 2, "up_to_date": 2, "outdated": 1, "api_key_problem": 1, "unreachable": 1, "with_client": 1,
+      "versions": [{ "value": "0.5.0", "installations": 2 }, { "value": "0.4.0", "installations": 1 }],
+      "system_versions": [{ "value": "Strapi 5.20.0", "installations": 2 }, { "value": "Strapi 5.21.0", "installations": 1 }],
+      "runtimes": [{ "value": "Node.js 22.11.0", "installations": 3 }],
+      "sdk_versions": [{ "value": "0.9.0", "installations": 3 }],
+      "api_key_status": [{ "value": "ok", "installations": 2 }, { "value": "invalid", "installations": 1 }]
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `installations` | Installations (one per site and plugin) |
+| `active` | Reported in the last `active_days` (30) days |
+| `up_to_date` / `outdated` | Plugin version at or above / below the latest GitHub release; installations whose plugin has no release or an unreadable version count in neither |
+| `api_key_problem` | Latest automatic key check not `ok` |
+| `unreachable` | Latest callback ping not `reachable` |
+| `with_client` | Mapped to a client in the dashboard |
+| `versions`, `system_versions`, `runtimes`, `sdk_versions`, `api_key_status` | Installations per value, most first; `null` = not reported (or the key not checked yet) |
+
+Plugins are sorted by installations. New fields may be added; clients should ignore what they don't know.
+
 ## Supertext Plugin Health
 
 `plugin-health/` holds the library every plugin bundles for this protocol, in TypeScript (the reference), PHP, Python, .NET and Java: `InstallationReporter` (reports, state, failure backoff), `reportsEnabled()` and `pingResponse()`. It needs nothing from the Supertext SDK: the plugin passes the SDK's key check (`checkApiKey()` + `apiKeyFingerprint()`) and `SDK_VERSION` in. Usage, API and bundling: [plugin-health/README.md](../plugin-health/README.md).
@@ -314,6 +362,7 @@ Dependabot opens weekly pull requests (npm minor and patch grouped, GitHub Actio
 - **Checks** workflow (`.github/workflows/checks.yml`): [actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://docs.zizmor.sh/) lint the workflows on every push and pull request; dependency review fails a pull request that adds a package with a known vulnerability (moderate or worse). Actions are pinned to commit SHAs. Locally: `pip install actionlint-py zizmor`, then `actionlint` and `zizmor --offline .github/workflows`.
 - **Links** workflow (`.github/workflows/links.yml`): [lychee](https://lychee.cli.rs/) checks the links in all Markdown files weekly and when docs change on `main`; broken links open the issue "Broken links in the docs".
 - TypeScript is analysed by CodeQL default setup; secret scanning with push protection is on (both set by Remy's setup script).
+- The statistics API has one shared token (`COMMANDO_STATS_TOKEN`), not one per user: rotate it by changing the variable. It returns totals only, so a leaked token reveals no sites or clients.
 - The report endpoint is public by design (plugins carry no credentials for the dashboard). It validates every field, limits bodies to 64 KB and reports to 60 per minute per IP. Anyone could send invented reports; treat the data as information, not as proof.
 
 ## Releasing

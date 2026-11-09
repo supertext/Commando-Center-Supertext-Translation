@@ -40,6 +40,7 @@ All settings are environment variables (Railway service variables).
 | `GITHUB_OWNER` | no | `supertext` | GitHub owner of the plugin repositories (a plugin whose repository has another name than the plugin name it reports, like `supertext-wordpress-polylang` → `Wordpress-Polylang-Supertext-Translation`, is mapped in `src/lib/releases.ts`) |
 | `COMMANDO_PROXY_URL` | no | – | Public base URL of the Supertext translation proxy, for the *Translation proxy* tab (e.g. `https://review-proxy.up.railway.app`) |
 | `COMMANDO_PROXY_TOKEN` | with `COMMANDO_PROXY_URL` | – | The proxy's `REVIEW_USAGE_TOKEN`. Keep it only in Railway's variables |
+| `COMMANDO_STATS_TOKEN` | no | – | Turns on the statistics API (`GET /api/v1/stats`, totals per plugin; developer guide → *Statistics API*). Random string of at least 32 characters (`openssl rand -base64 48`), sent as `Authorization: Bearer <token>`. Change it to revoke access. Keep it only in Railway's variables |
 | `COMMANDO_TIMEZONE` | no | `Europe/Zurich` | Time zone for dates in the UI |
 | `PORT` | no | `8080` | Port the server listens on (Railway sets it) |
 | `COMMANDO_PING_ALLOW_PRIVATE`, `COMMANDO_PING_HOSTS` | **never in production** | – | Test-only switches for the callback ping (local test servers, docs screenshots). They let the dashboard connect to private addresses; see the developer guide |
@@ -102,6 +103,8 @@ Delete the Railway service, then the database: `DROP DATABASE commando;` on the 
 | --- | --- |
 | Login says *Login is not configured* | `COMMANDO_OIDC_ISSUER` or `COMMANDO_OIDC_CLIENT_ID` is missing |
 | Login says *Sign-in with a Supertext account is not configured correctly* | The message names the variable: usually `COMMANDO_SESSION_SECRET` missing or shorter than 32 characters |
+| `/api/v1/stats` answers `404` *The statistics API is turned off* | `COMMANDO_STATS_TOKEN` is missing or shorter than 32 characters |
+| `/api/v1/stats` answers `401` | The `Authorization: Bearer <token>` header is missing or the token doesn't match `COMMANDO_STATS_TOKEN` (after 10 wrong tokens a minute: `429`) |
 | Login says *COMMANDO_PUBLIC_URL must be an https URL* | Set it with `https://`, e.g. `https://pluginhealth.supertext.com`: the Person Service only sends people back to the registered https address, and browsers don't keep the session cookie over http |
 | The Person Service shows *invalid_request* / *unauthorized client* or *invalid redirect_uri* | The client isn't registered in that environment, or its `RedirectUris` don't contain exactly `<center address>/auth/callback`. With a custom domain, set `COMMANDO_PUBLIC_URL` and register that address |
 | *Your Supertext account isn't allowed to use Plugin Health* | The account has no `Administrator` role (and its address isn't in `COMMANDO_OIDC_ALLOWED_EMAILS`). The log says `sign-in refused: not allowed by the staff rule` |
