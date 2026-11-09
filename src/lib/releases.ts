@@ -11,7 +11,7 @@ export const GITHUB_OWNER = process.env.GITHUB_OWNER || 'supertext';
 
 /** Plugins whose repository isn't named like the plugin name they report. */
 const REPOSITORIES: Record<string, string> = {
-  'supertext-wordpress-polylang': 'wordpress-polylang',
+  'supertext-wordpress-polylang': 'Wordpress-Polylang-Supertext-Translation',
 };
 
 /** The GitHub repository of a reported plugin name. */

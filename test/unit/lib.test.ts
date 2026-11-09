@@ -135,7 +135,7 @@ describe('latestRelease', () => {
 
 describe('repoUrl', () => {
   it('knows the WordPress plugin under its repository name', () => {
-    expect(repoUrl('supertext-wordpress-polylang')).toBe('https://github.com/supertext/wordpress-polylang');
-    expect(releaseUrl('supertext-wordpress-polylang', '0.14.0')).toBe('https://github.com/supertext/wordpress-polylang/releases/tag/v0.14.0');
+    expect(repoUrl('supertext-wordpress-polylang')).toBe('https://github.com/supertext/Wordpress-Polylang-Supertext-Translation');
+    expect(releaseUrl('supertext-wordpress-polylang', '0.14.0')).toBe('https://github.com/supertext/Wordpress-Polylang-Supertext-Translation/releases/tag/v0.14.0');
   });
 });

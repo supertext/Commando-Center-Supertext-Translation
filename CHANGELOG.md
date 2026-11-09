@@ -12,6 +12,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 ### Changed
 
+- The WordPress plugin's release and repository links point to its renamed repository, `Wordpress-Polylang-Supertext-Translation`.
 - Browser tab title: *Plugin Health | Supertext*.
 - Renamed from *Commando Center* to **Supertext Plugin Health**, like the library the plugins use to report to it. Only the name changes: settings (`COMMANDO_*`), cookies, the database, the repository and the address stay the same. The suggested Person Service client ID is `Supertext.PluginHealth.Admin.UI`.
 - **Sign in with your Supertext account** (OpenID Connect against Supertext's Person Service, authorization code with PKCE): only accounts with the `Administrator` role (or addresses set in `COMMANDO_OIDC_ALLOWED_EMAILS`) get in; 12-hour sessions; your name in the header; *Sign out* also signs out of the Supertext login. New settings `COMMANDO_OIDC_ISSUER`, `COMMANDO_OIDC_CLIENT_ID`, `COMMANDO_SESSION_SECRET` (and optional `COMMANDO_OIDC_CLIENT_SECRET`, `…_ALLOWED_ROLES`, `…_ALLOWED_EMAILS`, `…_SCOPES`, `COMMANDO_PUBLIC_URL`). The shared password is gone: `COMMANDO_PASSWORD` no longer does anything (delete it from the service variables). Existing sessions end once. The installation guide has the client registration for the Person Service.

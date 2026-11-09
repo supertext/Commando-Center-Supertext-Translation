@@ -36,7 +36,7 @@ const OUT = new URL('../docs/images/', import.meta.url);
 
 // Stand-in for the GitHub releases API: the latest release per repository.
 const RELEASES = {
-  'wordpress-polylang': '2.1.0',
+  'Wordpress-Polylang-Supertext-Translation': '2.1.0',
   'Typo3-Supertext-Translation': '0.4.0',
   'Magento-Supertext-Translation': '0.3.0',
   'Strapi-Supertext-Translation': '0.2.0',
