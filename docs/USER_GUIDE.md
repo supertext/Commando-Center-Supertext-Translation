@@ -85,9 +85,9 @@ Under **Reachable from the internet** you see the plugin's ping endpoint, the la
 
 ![Reachable from the internet: the ping endpoint, the last result with its time, the Ping now button and the last pings with trigger and result](images/installation-reachability.png)
 
-Under **Installed plugins** you see the other plugins installed on the site (name, type, version, active or not), as the site's administrator last sent them. Plugins don't send this list on their own: the administrator presses *Send plugins and languages to Supertext* (older versions: *Send installed plugins to Supertext*) in the Supertext plugin's settings, for example when you ask for it in a support case. *Not sent* means nobody has pressed it yet, or the plugin version doesn't have the button.
+Under **Installed plugins** you see the other plugins installed on the site (name, type, version, active or not), as the site's administrator last sent them. Plugins don't send this list on their own: the administrator presses *Send configuration to Supertext* (older versions: *Send installed plugins to Supertext*) in the Supertext plugin's settings, for example when you ask for it in a support case. *Not sent* means nobody has pressed it yet, or the plugin version doesn't have the button.
 
-Under **Languages** you see the plugin's language mapping: each language configured on the site and the Supertext language it is translated into. *not mapped* marks a language the plugin can't translate yet; the customer picks a Supertext language for it in the plugin's settings. It is sent together with the installed plugins, when the administrator presses *Send plugins and languages to Supertext*.
+Under **Languages** you see the plugin's language mapping: each language configured on the site and the Supertext language it is translated into. *not mapped* marks a language the plugin can't translate yet; the customer picks a Supertext language for it in the plugin's settings. It is sent together with the installed plugins, when the administrator presses *Send configuration to Supertext*.
 
 ![Languages: the WordPress languages of a site with the Supertext language each maps to, one marked as not mapped](images/installation-languages.png)
 

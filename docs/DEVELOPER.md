@@ -163,7 +163,7 @@ Plugins that already have a *Test connection* button and an *authentication fail
 
 So Supertext support can spot conflicts (another multilingual plugin, a cache, a page builder), a plugin can send the list of the other plugins installed on the site: name, version, active or not, and the type where the system has several (WordPress plugins and themes, Magento modules, TYPO3 extensions, …).
 
-- **By default only by hand:** the plugin's settings page has a button *Send installed plugins to Supertext*. It sends a report with event `extensions` and the list (Plugin Health ≥ 0.3: `sendExtensions(state, list)`). Nothing is sent automatically. With Plugin Health ≥ 0.4 the same button also sends the language mapping and is called *Send plugins and languages to Supertext* (see *Language mapping*).
+- **By default only by hand:** the plugin's settings page has a button *Send installed plugins to Supertext*. It sends a report with event `extensions` and the list (Plugin Health ≥ 0.3: `sendExtensions(state, list)`). Nothing is sent automatically. With Plugin Health ≥ 0.4 the same button also sends the language mapping and is called *Send configuration to Supertext* (see *Language mapping*).
 - **The developer may choose more:** a plugin can give Plugin Health a function that returns the list (`extensions` option); then every report carries it. Only where the list is cheap to read (no file scans on every back-end request: reports only run when one is due).
 - **Off means off:** with *Send version information to Supertext* off the button sends nothing; the plugin says why.
 - Include everything installed, active or not, the theme too. Never settings, licence keys, user data or paths. At most 500 entries (Plugin Health drops the rest).
@@ -190,20 +190,20 @@ So Supertext can see which languages the plugins translate and spot sites with l
 ]
 ```
 
-- **By default only by hand**, together with the installed plugins: one button *Send plugins and languages to Supertext* (strings below) sends one report with event `extensions` carrying both lists. With Plugin Health ≥ 0.4, give the reporter for that call a `languages` function and call `sendExtensions(state, list)` (WordPress does). A plugin without the installed-plugins list sends the mapping alone with `sendLanguages(state, list)` (event `languages`). Don't add a second button.
+- **By default only by hand**, together with the installed plugins: one button *Send configuration to Supertext* (strings below) sends one report with event `extensions` carrying both lists. With Plugin Health ≥ 0.4, give the reporter for that call a `languages` function and call `sendExtensions(state, list)` (WordPress does). A plugin without the installed-plugins list sends the mapping alone with `sendLanguages(state, list)` (event `languages`). Don't add a second button.
 - **The developer may choose more:** a `languages` function given to Plugin Health makes every report carry the mapping.
 - **Off means off:** with *Send version information to Supertext* off the button sends nothing; the plugin says why.
 - Send the code the system shows (`de_CH`, not a translated name) and the Supertext code the plugin would actually use, after its own resolution. Source and target languages alike; at most 100 (Plugin Health drops the rest).
 - The dashboard keeps the latest mapping per installation (`installations.languages`, `languages_at`), shows it on the installation page with unmapped languages marked, lists what changed in the history (*+ it → it-CH*, *de_CH: de-DE → de-CH*, *− en_IE*), finds sites by either code in the search, and counts the Supertext languages in the statistics API.
 
-Strings of the combined button (`{plugins}`, `{languages}` untranslated; *Failed* and *Reporting off* as for the installed plugins):
+Strings of the combined button (`{plugins}`, `{languages}` untranslated, use the system's own word for *plugins*; *Failed* and *Reporting off* as for the installed plugins). Don't call it anonymous: every report carries the site's address.
 
 | | Button | Help text | Sent |
 | --- | --- | --- | --- |
-| en | Send plugins and languages to Supertext | Sends Supertext the plugins installed on this site (name, version, active or not) and its languages with the Supertext language each one is translated into, so Supertext support can help. Nothing else is sent. | Sent: {plugins} plugins, {languages} languages. |
-| de | Plugins und Sprachen an Supertext senden | Sendet Supertext die auf dieser Website installierten Plugins (Name, Version, aktiv oder nicht) und ihre Sprachen mit der Supertext-Sprache, in die jede übersetzt wird, damit der Supertext-Support helfen kann. Sonst wird nichts übertragen. | Gesendet: {plugins} Plugins, {languages} Sprachen. |
-| fr | Envoyer les plugins et les langues à Supertext | Envoie à Supertext les plugins installés sur ce site (nom, version, actif ou non) et ses langues avec la langue Supertext dans laquelle chacune est traduite, afin que le support Supertext puisse vous aider. Rien d'autre n'est transmis. | Envoyé : {plugins} plugins, {languages} langues. |
-| it | Inviare plugin e lingue a Supertext | Invia a Supertext i plugin installati su questo sito (nome, versione, attivo o no) e le sue lingue con la lingua Supertext in cui viene tradotta ciascuna, affinché l'assistenza Supertext possa aiutarLa. Non viene trasmesso nient'altro. | Inviato: {plugins} plugin, {languages} lingue. |
+| en | Send configuration to Supertext | Sends Supertext the plugins installed on this site (name, version, active or not) and its Supertext language mappings, so Supertext support can help better. Nothing else is sent. | Sent: {plugins} plugins, {languages} languages. |
+| de | Konfiguration an Supertext senden | Sendet Supertext die auf dieser Website installierten Plugins (Name, Version, aktiv oder nicht) und ihre Supertext-Sprachzuordnungen, damit der Supertext-Support besser helfen kann. Sonst wird nichts übertragen. | Gesendet: {plugins} Plugins, {languages} Sprachen. |
+| fr | Envoyer la configuration à Supertext | Envoie à Supertext les plugins installés sur ce site (nom, version, actif ou non) et ses correspondances de langues Supertext, afin que le support Supertext puisse mieux vous aider. Rien d'autre n'est transmis. | Envoyé : {plugins} plugins, {languages} langues. |
+| it | Inviare la configurazione a Supertext | Invia a Supertext i plugin installati su questo sito (nome, versione, attivo o no) e le sue corrispondenze linguistiche Supertext, affinché l'assistenza Supertext possa aiutarLa meglio. Non viene trasmesso nient'altro. | Inviato: {plugins} plugin, {languages} lingue. |
 
 ### The callback ping
 
