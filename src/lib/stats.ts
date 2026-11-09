@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { db } from './db';
-import type { Extension } from './report';
+import type { Extension, LanguageMapping } from './report';
 import { versionStatus } from './semver';
 
 /**
@@ -42,12 +42,13 @@ export interface StatsRow {
   last_seen: Date | string;
   /** Only the counts are used: names never leave this module. */
   extensions: Extension[] | null;
+  languages: LanguageMapping[] | null;
 }
 
 export async function loadStatsRows(includeLocal: boolean, sql: Sql = db()): Promise<StatsRow[]> {
   return sql<StatsRow[]>`
     SELECT plugin, plugin_version, system, system_version, runtime, runtime_version, sdk_version,
-           api_key_status, callback_status, client_id, last_seen, extensions
+           api_key_status, callback_status, client_id, last_seen, extensions, languages
     FROM installations
     ${includeLocal ? sql`` : sql`WHERE NOT local`}`;
 }
@@ -85,6 +86,20 @@ export interface ExtensionStats {
   by_type: Array<{ type: string | null; installations: number; installed: Summary }>;
 }
 
+/** The plugins' language mappings: which Supertext languages are in use, and how many sites miss a mapping. */
+export interface LanguageStats {
+  /** Installations that sent their language mapping. */
+  reported: number;
+  /** Of those, installations with at least one language that isn't mapped. */
+  with_unmapped: number;
+  /** Languages per site. */
+  per_site: Summary | null;
+  /** Installations using each Supertext code, most first. */
+  supertext: Count[];
+  /** Installations with each of the system's own codes, and how they are mapped (most first). */
+  mappings: Array<{ code: string; supertext: string | null; installations: number }>;
+}
+
 export interface PluginStats extends Totals {
   plugin: string;
   latest_release: string | null;
@@ -94,13 +109,14 @@ export interface PluginStats extends Totals {
   sdk_versions: Count[];
   api_key_status: Count[];
   extensions: ExtensionStats;
+  languages: LanguageStats;
 }
 
 export interface Stats {
   generated_at: string;
   active_days: number;
   include_local: boolean;
-  totals: Totals & { plugins: number; extensions: ExtensionStats };
+  totals: Totals & { plugins: number; extensions: ExtensionStats; languages: LanguageStats };
   plugins: PluginStats[];
 }
 
@@ -140,6 +156,29 @@ export function extensionStats(rows: StatsRow[]): ExtensionStats {
   };
 }
 
+export function languageStats(rows: StatsRow[]): LanguageStats {
+  const lists = rows.map((r) => r.languages).filter((l): l is LanguageMapping[] => Array.isArray(l));
+  const mappings = new Map<string, { code: string; supertext: string | null; installations: number }>();
+  for (const l of lists) {
+    for (const m of l) {
+      const k = `${m.code.toLowerCase()}\u0000${m.supertext ?? ''}`;
+      const hit = mappings.get(k);
+      if (hit) hit.installations++;
+      else mappings.set(k, { code: m.code, supertext: m.supertext, installations: 1 });
+    }
+  }
+  return {
+    reported: lists.length,
+    with_unmapped: lists.filter((l) => l.some((m) => m.supertext === null)).length,
+    per_site: summary(lists.map((l) => l.length)),
+    // A site counts once per Supertext code, even if several of its languages map to it.
+    supertext: counts(lists.flatMap((l) => [...new Set(l.flatMap((m) => (m.supertext ? [m.supertext] : [])))])),
+    mappings: [...mappings.values()].sort(
+      (a, b) => b.installations - a.installations || a.code.localeCompare(b.code, 'en', { sensitivity: 'base' }),
+    ),
+  };
+}
+
 function join(name: string | null, version: string | null): string | null {
   if (!name) return null;
   return version ? `${name} ${version}` : name;
@@ -176,6 +215,7 @@ export function computeStats(rows: StatsRow[], latest: Map<string, string | null
         sdk_versions: counts(list.map((r) => r.sdk_version)),
         api_key_status: counts(list.map((r) => r.api_key_status)),
         extensions: extensionStats(list),
+        languages: languageStats(list),
       };
     })
     .sort((a, b) => b.installations - a.installations || a.plugin.localeCompare(b.plugin));
@@ -192,7 +232,7 @@ export function computeStats(rows: StatsRow[], latest: Map<string, string | null
     generated_at: now.toISOString(),
     active_days: ACTIVE_DAYS,
     include_local: includeLocal,
-    totals: { ...all, plugins: plugins.length, extensions: extensionStats(rows) },
+    totals: { ...all, plugins: plugins.length, extensions: extensionStats(rows), languages: languageStats(rows) },
     plugins,
   };
 }

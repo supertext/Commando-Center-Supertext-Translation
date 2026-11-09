@@ -118,6 +118,7 @@ final class ReporterTest extends TestCase
             transport: $center,
             now: $now === null ? null : static fn (): float => $now,
             extensions: isset($config['extensions']) && \is_array($config['extensions']) ? static fn (): array => (array) $config['extensions'] : null,
+            languages: isset($config['languages']) && \is_array($config['languages']) ? static fn (): array => (array) $config['languages'] : null,
         );
     }
 
@@ -235,6 +236,7 @@ final class ReporterTest extends TestCase
                 'testConnection' => $reporter->testConnection($state, $apiKey),
                 'reportCheck' => $reporter->reportCheck($state),
                 'sendExtensions' => $reporter->sendExtensions($state, \is_array($step['extensions']) ? $step['extensions'] : []),
+                'sendLanguages' => $reporter->sendLanguages($state, \is_array($step['languages']) ? $step['languages'] : []),
                 default => self::fail('unknown action ' . $action),
             };
             $expect = self::map($step['expect']);
@@ -509,6 +511,38 @@ final class ReporterTest extends TestCase
         self::assertCount(500, $out);
         self::assertSame(['name' => str_repeat('x', 100), 'version' => str_repeat('v', 50), 'type' => str_repeat('p', 30)], $out[0]);
         self::assertSame([['name' => 'Über', 'type' => 'thème']], InstallationReporter::normalizeExtensions([['name' => 'Über', 'type' => 'THÈME'], 'junk', ['name' => 'über', 'type' => 'thème']]));
+    }
+
+    public function testAtMostOneHundredLanguagesAndCutLongCodes(): void
+    {
+        $list = [['code' => str_repeat('x', 50), 'supertext' => str_repeat('y', 50)]];
+        for ($n = 0; $n < 120; ++$n) {
+            $list[] = ['code' => 'l' . $n, 'supertext' => 'de-CH'];
+        }
+        $out = InstallationReporter::normalizeLanguages($list);
+        self::assertCount(100, $out);
+        self::assertSame(['code' => str_repeat('x', 35), 'supertext' => str_repeat('y', 35)], $out[0]);
+        self::assertSame([['code' => 'Ü', 'supertext' => null]], InstallationReporter::normalizeLanguages([['code' => 'Ü'], 'junk', ['code' => 'ü', 'supertext' => 'de']]));
+    }
+
+    public function testAThrowingLanguagesFunctionLeavesTheMappingOut(): void
+    {
+        $fakes = new Fakes(null, ['status' => 202], self::fingerprints());
+        $reporter = new InstallationReporter(
+            enabled: true,
+            siteUrl: 'https://cms.example.ch',
+            pluginName: 'X',
+            pluginVersion: '1.0.0',
+            systemName: 'Y',
+            keyChecker: $fakes,
+            reportUrl: self::REPORT_URL,
+            transport: $fakes,
+            languages: static fn (): array => throw new \RuntimeException('boom'),
+        );
+        self::assertTrue($reporter->reportCheck(null)->sent);
+        $body = json_decode((string) $fakes->reports[0]->body, true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($body);
+        self::assertArrayNotHasKey('languages', $body);
     }
 
     public function testAThrowingExtensionsFunctionLeavesTheListOut(): void

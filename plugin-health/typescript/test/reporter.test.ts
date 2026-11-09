@@ -10,10 +10,12 @@ import {
   REPORT_TIMEOUT_MS,
   keyCheck,
   normalizeExtensions,
+  normalizeLanguages,
   pingResponse,
   reporterState,
   reportsEnabled,
   type Extension,
+  type LanguageMapping,
   type FetchLike,
   type KeyCheck,
   type KeyChecker,
@@ -80,10 +82,13 @@ describe('spec/reporter.json', () => {
 
   for (const scenario of s.scenarios) {
     it(scenario.name, async () => {
-      const { extensions: configExtensions, ...config } = { ...s.config, ...scenario.config } as typeof s.config & { extensions?: Extension[] }
+      const { extensions: configExtensions, languages: configLanguages, ...config } = { ...s.config, ...scenario.config } as typeof s.config & {
+        extensions?: Extension[]
+        languages?: LanguageMapping[]
+      }
       let state: ReporterState = reporterState(JSON.parse(JSON.stringify(scenario.state)))
       for (const raw of scenario.steps) {
-        const step = raw as typeof raw & { apiKeys?: Record<string, string>; keyChecks?: KeyCheck[]; keyName?: string; checks?: unknown; extensions?: Extension[] }
+        const step = raw as typeof raw & { apiKeys?: Record<string, string>; keyChecks?: KeyCheck[]; keyName?: string; checks?: unknown; extensions?: Extension[]; languages?: LanguageMapping[] }
         const keys = step.apiKeys ?? step.apiKey!
         const f = fakes(step.keyChecks ?? step.keyCheck, step.report)
         const reporter = new InstallationReporter({
@@ -93,6 +98,7 @@ describe('spec/reporter.json', () => {
           fetch: f.fetch,
           now: () => Date.parse(step.now),
           ...(configExtensions ? { extensions: () => configExtensions } : {}),
+          ...(configLanguages ? { languages: () => configLanguages } : {}),
         })
         const r =
           step.action === 'afterSettingsSaved'
@@ -105,7 +111,9 @@ describe('spec/reporter.json', () => {
                   ? await reporter.testConnection(state, keys)
                   : step.action === 'sendExtensions'
                     ? await reporter.sendExtensions(state, step.extensions!)
-                    : await reporter.reportCheck(state)
+                    : step.action === 'sendLanguages'
+                      ? await reporter.sendLanguages(state, step.languages!)
+                      : await reporter.reportCheck(state)
         expect(f.calls, step.action).toEqual(step.expect.calls)
         expect(r.event).toBe(step.expect.event)
         expect(r.sent).toBe(step.expect.sent)
@@ -195,6 +203,30 @@ describe('reporter', () => {
     const out = normalizeExtensions(list)
     expect(out).toHaveLength(500)
     expect(out[0]).toEqual({ name: 'x'.repeat(100), version: 'v'.repeat(50), type: 'p'.repeat(30) })
+  })
+
+  it('sends at most 100 languages and cuts long codes', () => {
+    const list: LanguageMapping[] = Array.from({ length: 120 }, (_, n) => ({ code: `l${n}`, supertext: 'de-CH' }))
+    list.unshift({ code: 'x'.repeat(50), supertext: 'y'.repeat(50) })
+    const out = normalizeLanguages(list)
+    expect(out).toHaveLength(100)
+    expect(out[0]).toEqual({ code: 'x'.repeat(35), supertext: 'y'.repeat(35) })
+  })
+
+  it('a languages function that throws leaves the mapping out, the report still goes', async () => {
+    const f = fakes(okCheck, { status: 202 })
+    const reporter = new InstallationReporter({
+      ...s.config,
+      keyChecker: { ...f.keyChecker, fingerprint: () => 'fp' },
+      reportUrl: 'https://center.test/api/v1/report',
+      fetch: f.fetch,
+      languages: () => {
+        throw new Error('boom')
+      },
+    })
+    const r = await reporter.reportCheck(null)
+    expect(r.sent).toBe(true)
+    expect(f.bodies[0]).not.toHaveProperty('languages')
   })
 
   it('an extensions function that throws leaves the list out, the report still goes', async () => {

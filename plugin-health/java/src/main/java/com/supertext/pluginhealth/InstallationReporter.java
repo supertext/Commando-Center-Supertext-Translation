@@ -59,6 +59,7 @@ public final class InstallationReporter {
     private final Transport transport;
     private final Clock clock;
     private final Supplier<? extends Iterable<Extension>> extensions;
+    private final Supplier<? extends Iterable<LanguageMapping>> languages;
 
     private InstallationReporter(Builder b) {
         this.enabled = b.enabled;
@@ -85,6 +86,7 @@ public final class InstallationReporter {
         this.transport = b.transport != null ? b.transport : new JdkHttpTransport();
         this.clock = b.clock != null ? b.clock : Clock.systemUTC();
         this.extensions = b.extensions;
+        this.languages = b.languages;
     }
 
     public static Builder builder() {
@@ -111,6 +113,36 @@ public final class InstallationReporter {
 
     /** At most this many installed plugins are sent; the rest are left out. */
     public static final int MAX_EXTENSIONS = 500;
+
+    /** At most this many languages are sent; the rest are left out. */
+    public static final int MAX_LANGUAGES = 100;
+
+    /**
+     * The language mapping as it is sent: codes trimmed and cut to 35 characters, a blank Supertext code sent as
+     * {@code null}, blank codes and repeats (same code, ignoring case) dropped, at most {@link #MAX_LANGUAGES}.
+     */
+    public static List<LanguageMapping> normalizeLanguages(Iterable<LanguageMapping> languages) {
+        List<LanguageMapping> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        if (languages == null) {
+            return out;
+        }
+        for (LanguageMapping l : languages) {
+            if (out.size() >= MAX_LANGUAGES) {
+                break;
+            }
+            if (l == null || l.code() == null) {
+                continue;
+            }
+            String code = cut(l.code().strip(), 35);
+            if (code.isEmpty() || !seen.add(code.toLowerCase(Locale.ROOT))) {
+                continue;
+            }
+            String supertext = l.supertext() == null ? "" : cut(l.supertext().strip(), 35);
+            out.add(new LanguageMapping(code, supertext.isEmpty() ? null : supertext));
+        }
+        return out;
+    }
 
     /**
      * The installed plugins as they are sent: names and versions trimmed (100 and 50 characters), types in lower
@@ -156,7 +188,15 @@ public final class InstallationReporter {
      * even after a recent failure, but only while reporting is on ({@code sent} false otherwise).
      */
     public ReporterResult sendExtensions(ReporterState state, Iterable<Extension> extensions) {
-        return send(orEmpty(state), ReportEvent.EXTENSIONS, normalizeExtensions(extensions));
+        return send(orEmpty(state), ReportEvent.EXTENSIONS, normalizeExtensions(extensions), null);
+    }
+
+    /**
+     * The plugin's "Send language settings to Supertext" button: sends event {@code languages} with the mapping now,
+     * even after a recent failure, but only while reporting is on ({@code sent} false otherwise).
+     */
+    public ReporterResult sendLanguages(ReporterState state, Iterable<LanguageMapping> languages) {
+        return send(orEmpty(state), ReportEvent.LANGUAGES, null, normalizeLanguages(languages));
     }
 
     /** After the plugin's settings were saved: checks the key, reports {@code installed} or {@code settings_saved}. */
@@ -229,7 +269,7 @@ public final class InstallationReporter {
 
     /** Sends a {@code check} report now (commands, tests), even within the failure backoff. */
     public ReporterResult reportCheck(ReporterState state) {
-        return send(orEmpty(state), ReportEvent.CHECK, null);
+        return send(orEmpty(state), ReportEvent.CHECK, null, null);
     }
 
     /** The report body for an event and state (JSON: {@code Json} order, nested maps). */
@@ -242,6 +282,15 @@ public final class InstallationReporter {
      * builder's {@code extensions} function, if any).
      */
     public Map<String, Object> buildReport(ReportEvent event, ReporterState state, List<Extension> extensionList) {
+        return buildReport(event, state, extensionList, null);
+    }
+
+    /**
+     * The report body for an event and state with the installed plugins and the language mapping to send
+     * ({@code null}: those of the builder's {@code extensions} and {@code languages} functions, if any).
+     */
+    public Map<String, Object> buildReport(ReportEvent event, ReporterState state, List<Extension> extensionList,
+            List<LanguageMapping> languageList) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("schema", 1);
         body.put("event", event.value());
@@ -292,7 +341,29 @@ public final class InstallationReporter {
             }
             body.put("extensions", entries);
         }
+        List<LanguageMapping> mapping = languageList != null ? languageList : configuredLanguages();
+        if (mapping != null) {
+            List<Object> entries = new ArrayList<>();
+            for (LanguageMapping l : mapping) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("code", l.code());
+                entry.put("supertext", l.supertext());
+                entries.add(entry);
+            }
+            body.put("languages", entries);
+        }
         return body;
+    }
+
+    private List<LanguageMapping> configuredLanguages() {
+        if (languages == null) {
+            return null;
+        }
+        try {
+            return normalizeLanguages(languages.get());
+        } catch (RuntimeException e) {
+            return null; // never fails the report: the mapping is extra information
+        }
     }
 
     private List<Extension> configuredExtensions() {
@@ -311,8 +382,9 @@ public final class InstallationReporter {
         return Json.write(buildReport(event, state));
     }
 
-    private String buildReportJson(ReportEvent event, ReporterState state, List<Extension> extensionList) {
-        return Json.write(buildReport(event, state, extensionList));
+    private String buildReportJson(ReportEvent event, ReporterState state, List<Extension> extensionList,
+            List<LanguageMapping> languageList) {
+        return Json.write(buildReport(event, state, extensionList, languageList));
     }
 
     // ---------------------------------------------------------------- internals
@@ -437,10 +509,11 @@ public final class InstallationReporter {
                 // Unreadable time: try again.
             }
         }
-        return send(state, event, null);
+        return send(state, event, null, null);
     }
 
-    private ReporterResult send(ReporterState state, ReportEvent event, List<Extension> extensionList) {
+    private ReporterResult send(ReporterState state, ReportEvent event, List<Extension> extensionList,
+            List<LanguageMapping> languageList) {
         if (!enabled) {
             return new ReporterResult(state, null, false);
         }
@@ -450,7 +523,7 @@ public final class InstallationReporter {
             headers.put("Content-Type", "application/json");
             headers.put("Accept", "application/json");
             headers.put("User-Agent", "supertext-plugin-health/" + PluginHealthInfo.VERSION + " (java) " + pluginName + "/" + pluginVersion);
-            byte[] body = buildReportJson(event, state, extensionList).getBytes(StandardCharsets.UTF_8);
+            byte[] body = buildReportJson(event, state, extensionList, languageList).getBytes(StandardCharsets.UTF_8);
             int status = transport.send(new Transport.Request("POST", URI.create(reportUrl), headers, body, Reporting.REPORT_TIMEOUT));
             ok = status >= 200 && status < 300;
         } catch (InterruptedException e) {
@@ -519,6 +592,7 @@ public final class InstallationReporter {
         private Transport transport;
         private Clock clock;
         private Supplier<? extends Iterable<Extension>> extensions;
+        private Supplier<? extends Iterable<LanguageMapping>> languages;
 
         private Builder() {
         }
@@ -598,6 +672,15 @@ public final class InstallationReporter {
          */
         public Builder extensions(Supplier<? extends Iterable<Extension>> extensions) {
             this.extensions = extensions;
+            return this;
+        }
+
+        /**
+         * Optional: returns the language mapping, so that every report carries it. Leave it out to send it only by
+         * hand ({@link InstallationReporter#sendLanguages}, the plugin's button): the default.
+         */
+        public Builder languages(Supplier<? extends Iterable<LanguageMapping>> languages) {
+            this.languages = languages;
             return this;
         }
 

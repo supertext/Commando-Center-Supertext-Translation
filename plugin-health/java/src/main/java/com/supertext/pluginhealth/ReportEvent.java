@@ -13,7 +13,9 @@ public enum ReportEvent {
     /** Sent on demand ({@link InstallationReporter#reportCheck(ReporterState)}). */
     CHECK("check"),
     /** The list of installed plugins was sent ({@link InstallationReporter#sendExtensions}). */
-    EXTENSIONS("extensions");
+    EXTENSIONS("extensions"),
+    /** The language mapping was sent ({@link InstallationReporter#sendLanguages}). */
+    LANGUAGES("languages");
 
     private final String value;
 
@@ -21,7 +23,7 @@ public enum ReportEvent {
         this.value = value;
     }
 
-    /** {@code installed}, {@code settings_saved}, {@code upgraded}, {@code api_key_check}, {@code check} or {@code extensions}. */
+    /** {@code installed}, {@code settings_saved}, {@code upgraded}, {@code api_key_check}, {@code check}, {@code extensions} or {@code languages}. */
     public String value() {
         return value;
     }

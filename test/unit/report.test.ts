@@ -37,6 +37,7 @@ describe('parseReport (spec/report-examples.json)', () => {
         callbackUrl: 'https://www.example.ch/supertext/ping',
         apiKeys: null,
         extensions: null,
+        languages: null,
       },
     });
   });
@@ -62,6 +63,7 @@ describe('api_key_check (spec/report-examples.json → stored)', () => {
             api_key_configured?: boolean;
             api_keys?: Record<string, unknown>[];
             extensions?: Record<string, unknown>[];
+            languages?: Record<string, unknown>[];
           };
         }
       ).stored;
@@ -69,6 +71,8 @@ describe('api_key_check (spec/report-examples.json → stored)', () => {
       if ('api_key_configured' in stored) expect(r.report.apiKeyConfigured).toBe(stored.api_key_configured);
       if ('extensions' in stored) expect(r.report.extensions).toEqual(stored.extensions);
       else expect(r.report.extensions).toBeNull();
+      if ('languages' in stored) expect(r.report.languages).toEqual(stored.languages);
+      else expect(r.report.languages).toBeNull();
       if ('api_keys' in stored) {
         expect(
           r.report.apiKeys?.map((k) => ({

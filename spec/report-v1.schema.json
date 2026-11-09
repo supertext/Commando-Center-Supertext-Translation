@@ -9,10 +9,10 @@
   "properties": {
     "schema": { "const": 1 },
     "event": {
-      "description": "Why the report is sent: installed, settings_saved, upgraded (plugin, system or runtime version changed since the last report), api_key_check (the API key check result changed outside a settings save, e.g. a new key from the environment or a translation rejected with 401) check (sent by a command or test) or extensions (an administrator sent the list of installed plugins with the plugin's button; the report carries extensions). Other values are stored as given.",
+      "description": "Why the report is sent: installed, settings_saved, upgraded (plugin, system or runtime version changed since the last report), api_key_check (the API key check result changed outside a settings save, e.g. a new key from the environment or a translation rejected with 401) check (sent by a command or test) extensions (an administrator sent the list of installed plugins with the plugin's button; the report carries extensions) or languages (an administrator sent the language mapping with the plugin's button; the report carries languages). Other values are stored as given.",
       "type": "string",
       "pattern": "^[a-z_]{1,40}$",
-      "examples": ["installed", "settings_saved", "upgraded", "api_key_check", "check", "extensions"]
+      "examples": ["installed", "settings_saved", "upgraded", "api_key_check", "check", "extensions", "languages"]
     },
     "site_url": {
       "description": "Base URL of the installation (the site or back end the plugin runs in). It identifies the installation; the center normalizes it (see site-url-vectors.json).",
@@ -97,6 +97,19 @@
           "version": { "type": "string", "maxLength": 50 },
           "active": { "description": "Whether it is enabled. Missing: the system doesn't say.", "type": "boolean" },
           "type": { "description": "What it is in the system's words, lower case: plugin, theme, module, extension, bundle, package, app, …", "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,29}$" }
+        }
+      }
+    },
+    "languages": {
+      "description": "Optional: the plugin's language mapping, one entry per language configured in the system with the Supertext code it is translated as, at most 100. Sent with event languages when an administrator presses the plugin's button (the default), or with every report if the plugin's developer chose so. Missing: no list (the center keeps the last one). Malformed entries, duplicates (same code, ignoring case) and entries past 100 are dropped; a malformed supertext code is stored as null.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": ["code"],
+        "properties": {
+          "code": { "description": "The system's own code for the language, as it shows it (de_CH, en-GB, zh_Hans_CN, …).", "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.@-]{0,34}$" },
+          "supertext": { "description": "The Supertext code it maps to (de-CH, fr-FR, zh-Hans, gsw-u-sd-chzh, …). null or missing: not mapped, so translating it fails.", "oneOf": [{ "type": "string", "maxLength": 35, "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8}){0,6}$" }, { "type": "null" }] }
         }
       }
     }

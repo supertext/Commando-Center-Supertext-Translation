@@ -57,6 +57,12 @@ public sealed class ReporterOptions
     /// only by hand (<see cref="InstallationReporter.SendExtensionsAsync"/>, the plugin's button): the default.
     /// </summary>
     public Func<IEnumerable<Extension?>>? Extensions { get; init; }
+
+    /// <summary>
+    /// Optional: returns the language mapping, so that every report carries it. Leave it null to send it only by
+    /// hand (<see cref="InstallationReporter.SendLanguagesAsync"/>, the plugin's button): the default.
+    /// </summary>
+    public Func<IEnumerable<LanguageMapping?>>? Languages { get; init; }
 }
 
 /// <summary>
@@ -99,6 +105,39 @@ public sealed class InstallationReporter
 
     /// <summary>At most this many installed plugins are sent; the rest are left out.</summary>
     public const int MaxExtensions = 500;
+
+    /// <summary>At most this many languages are sent; the rest are left out.</summary>
+    public const int MaxLanguages = 100;
+
+    /// <summary>
+    /// The language mapping as it is sent: codes trimmed and cut to 35 characters, a blank Supertext code sent as
+    /// null, blank codes and repeats (same code, ignoring case) dropped, at most <see cref="MaxLanguages"/>.
+    /// </summary>
+    public static IReadOnlyList<LanguageMapping> NormalizeLanguages(IEnumerable<LanguageMapping?> languages)
+    {
+        ArgumentNullException.ThrowIfNull(languages);
+        var output = new List<LanguageMapping>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var l in languages)
+        {
+            if (output.Count >= MaxLanguages)
+            {
+                break;
+            }
+            if (l?.Code is null)
+            {
+                continue;
+            }
+            var code = Cut(l.Code.Trim(), 35);
+            if (code.Length == 0 || !seen.Add(code.ToLowerInvariant()))
+            {
+                continue;
+            }
+            var supertext = l.Supertext is null ? string.Empty : Cut(l.Supertext.Trim(), 35);
+            output.Add(new LanguageMapping(code, supertext.Length == 0 ? null : supertext));
+        }
+        return output;
+    }
 
     /// <summary>
     /// The installed plugins as they are sent: names and versions trimmed (100 and 50 characters), types in lower
@@ -152,6 +191,13 @@ public sealed class InstallationReporter
     /// </summary>
     public Task<ReporterResult> SendExtensionsAsync(ReporterState? state, IEnumerable<Extension?> extensions, CancellationToken cancellationToken = default) =>
         SendAsync(state ?? ReporterState.Empty, ReportEvents.Extensions, cancellationToken, NormalizeExtensions(extensions));
+
+    /// <summary>
+    /// The plugin's "Send language settings to Supertext" button: sends event <c>languages</c> with the mapping now,
+    /// even after a recent failure, but only while reporting is on (<c>Sent</c> false otherwise).
+    /// </summary>
+    public Task<ReporterResult> SendLanguagesAsync(ReporterState? state, IEnumerable<LanguageMapping?> languages, CancellationToken cancellationToken = default) =>
+        SendAsync(state ?? ReporterState.Empty, ReportEvents.Languages, cancellationToken, null, NormalizeLanguages(languages));
 
     /// <summary>After the plugin's settings were saved: checks the key, reports <c>installed</c> or <c>settings_saved</c>.</summary>
     public Task<ReporterResult> AfterSettingsSavedAsync(ReporterState? state, string? apiKey, CancellationToken cancellationToken = default) =>
@@ -289,7 +335,8 @@ public sealed class InstallationReporter
     /// <param name="reportEvent">The event.</param>
     /// <param name="state">The state.</param>
     /// <param name="extensions">The installed plugins to send; default: those of <see cref="ReporterOptions.Extensions"/>, if set.</param>
-    public JsonObject BuildReport(string reportEvent, ReporterState state, IReadOnlyList<Extension>? extensions = null)
+    /// <param name="languages">The language mapping to send; default: that of <see cref="ReporterOptions.Languages"/>, if set.</param>
+    public JsonObject BuildReport(string reportEvent, ReporterState state, IReadOnlyList<Extension>? extensions = null, IReadOnlyList<LanguageMapping>? languages = null)
     {
         ArgumentNullException.ThrowIfNull(state);
         var body = new JsonObject
@@ -350,7 +397,32 @@ public sealed class InstallationReporter
             }
             body["extensions"] = array;
         }
+        if ((languages ?? ConfiguredLanguages()) is { } mapping)
+        {
+            var array = new JsonArray();
+            foreach (var l in mapping)
+            {
+                array.Add(new JsonObject { ["code"] = l.Code, ["supertext"] = l.Supertext });
+            }
+            body["languages"] = array;
+        }
         return body;
+    }
+
+    private IReadOnlyList<LanguageMapping>? ConfiguredLanguages()
+    {
+        if (options.Languages is null)
+        {
+            return null;
+        }
+        try
+        {
+            return NormalizeLanguages(options.Languages());
+        }
+        catch
+        {
+            return null; // Never fails the report: the mapping is extra information.
+        }
     }
 
     private IReadOnlyList<Extension>? ConfiguredExtensions()
@@ -455,7 +527,12 @@ public sealed class InstallationReporter
         return SendAsync(state, reportEvent, cancellationToken);
     }
 
-    private async Task<ReporterResult> SendAsync(ReporterState state, string reportEvent, CancellationToken cancellationToken, IReadOnlyList<Extension>? extensions = null)
+    private async Task<ReporterResult> SendAsync(
+        ReporterState state,
+        string reportEvent,
+        CancellationToken cancellationToken,
+        IReadOnlyList<Extension>? extensions = null,
+        IReadOnlyList<LanguageMapping>? languages = null)
     {
         if (!options.Enabled)
         {
@@ -466,7 +543,7 @@ public sealed class InstallationReporter
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(Reporting.ReportTimeout);
-            var content = new ByteArrayContent(Encoding.UTF8.GetBytes(BuildReport(reportEvent, state, extensions).ToJsonString()));
+            var content = new ByteArrayContent(Encoding.UTF8.GetBytes(BuildReport(reportEvent, state, extensions, languages).ToJsonString()));
             content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
             using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(ReportUrl, UriKind.Absolute)) { Content = content };
             request.Headers.TryAddWithoutValidation("Accept", "application/json");

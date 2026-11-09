@@ -90,6 +90,9 @@ public static class ReportEvents
 
     /// <summary>The list of installed plugins was sent (<see cref="InstallationReporter.SendExtensionsAsync"/>).</summary>
     public const string Extensions = "extensions";
+
+    /// <summary>The language mapping was sent (<see cref="InstallationReporter.SendLanguagesAsync"/>).</summary>
+    public const string Languages = "languages";
 }
 
 /// <summary>Another plugin, extension, module or theme installed on the site (see <see cref="InstallationReporter.SendExtensionsAsync"/>).</summary>
@@ -98,6 +101,11 @@ public static class ReportEvents
 /// <param name="Active">Whether it is enabled; null if the system doesn't say.</param>
 /// <param name="Type">The system's own word: plugin, theme, module, extension, bundle, package, app, …</param>
 public sealed record Extension(string Name, string? Version = null, bool? Active = null, string? Type = null);
+
+/// <summary>One language of the system and the Supertext code it is translated as (see <see cref="InstallationReporter.SendLanguagesAsync"/>).</summary>
+/// <param name="Code">The system's own code, as it shows it: de_CH, en-GB, zh_Hans_CN, …</param>
+/// <param name="Supertext">The Supertext code the plugin uses for it (de-CH, fr-FR, zh-Hans, …); null: not mapped.</param>
+public sealed record LanguageMapping(string Code, string? Supertext = null);
 
 /// <summary>A name and an optional version (system, runtime, plugin).</summary>
 public sealed record NameVersion(string Name, string? Version = null);

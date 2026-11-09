@@ -151,6 +151,34 @@ const samples = [
       { name: 'Twenty Twenty-Five', version: '1.2', active: true, type: 'theme' },
     ],
   }),
+  // Plugin Health 0.4: the administrator sends the language mapping (button); en_IE was mapped later.
+  wp('6.9.0', '2.1.0', 'languages', {
+    api_keys: [
+      { name: 'AI translation', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+      { name: 'Professional orders', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+    ],
+    languages: [
+      { code: 'de_CH', supertext: 'de-CH' },
+      { code: 'fr_FR', supertext: 'fr-FR' },
+      { code: 'it_IT', supertext: 'it-IT' },
+      { code: 'en_GB', supertext: 'en-GB' },
+      { code: 'en_IE', supertext: null },
+    ],
+  }),
+  wp('6.9.0', '2.1.0', 'languages', {
+    api_keys: [
+      { name: 'AI translation', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+      { name: 'Professional orders', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+    ],
+    languages: [
+      { code: 'de_CH', supertext: 'de-CH' },
+      { code: 'fr_FR', supertext: 'fr-FR' },
+      { code: 'it_IT', supertext: 'it-IT' },
+      { code: 'en_GB', supertext: 'en-GB' },
+      { code: 'en_IE', supertext: 'en-GB' },
+      { code: 'rm', supertext: null },
+    ],
+  }),
   { event: 'settings_saved', site_url: 'https://staging.alpenblick-hotels.example.ch', plugin: { name: 'supertext-wordpress-polylang', version: '2.0.0' }, system: { name: 'WordPress', version: '6.8.3' }, runtime: { name: 'PHP', version: '8.2.20' }, api_key_configured: true, ...check('unreachable', 6), ...ping('http://staging.alpenblick-hotels.example.ch/wp-json/supertext/v1/ping') },
   { event: 'upgraded', site_url: 'https://www.bergbahnen-muster.example.ch/', plugin: { name: 'Typo3-Supertext-Translation', version: '0.3.0' }, system: { name: 'TYPO3', version: '13.4.2' }, runtime: { name: 'PHP', version: '8.3.12' }, sdk_version: '0.2.0', api_key_configured: true, ...check('ok', 5, { http_status: 200 }), ...ping('http://www.bergbahnen-muster.example.ch/?eID=supertext_ping') },
   { event: 'installed', site_url: 'https://shop.velo-beispiel.example.com/de/', plugin: { name: 'Magento-Supertext-Translation', version: '0.3.0' }, system: { name: 'Magento', version: '2.4.8' }, runtime: { name: 'PHP', version: '8.4.1' }, api_key_configured: false, ...check('missing', 4), ...ping('http://shop.velo-beispiel.example.com/supertext/ping') },
@@ -202,7 +230,7 @@ await shot('installation.png', { fullPage: true });
 // Page coordinates (the redirect after Ping now scrolls to #callback).
 const [top, bottom] = await page.evaluate(() => {
   const y = (el) => el.getBoundingClientRect().top + window.scrollY;
-  return [y(document.getElementById('callback')), y(document.getElementById('extensions'))];
+  return [y(document.getElementById('callback')), y(document.getElementById('languages'))];
 });
 await shot('installation-reachability.png', { fullPage: true, clip: { x: 0, y: top - 8, width: 1360, height: bottom - top } });
 const [extTop, extBottom] = await page.evaluate(() => {
@@ -211,6 +239,11 @@ const [extTop, extBottom] = await page.evaluate(() => {
   return [y(document.getElementById('extensions')), y(history)];
 });
 await shot('installation-extensions.png', { fullPage: true, clip: { x: 0, y: extTop - 8, width: 1360, height: extBottom - extTop } });
+const [langTop, langBottom] = await page.evaluate(() => {
+  const y = (el) => el.getBoundingClientRect().top + window.scrollY;
+  return [y(document.getElementById('languages')), y(document.getElementById('extensions'))];
+});
+await shot('installation-languages.png', { fullPage: true, clip: { x: 0, y: langTop - 8, width: 1360, height: langBottom - langTop } });
 
 await page.goto(`${BASE}/clients`);
 await shot('clients.png', { clip: { x: 0, y: 0, width: 1360, height: 360 } });

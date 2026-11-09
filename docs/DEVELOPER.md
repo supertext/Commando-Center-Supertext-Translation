@@ -73,7 +73,7 @@ Content-Type: application/json
 | Field | Required | Content |
 | --- | --- | --- |
 | `schema` | yes | `1` |
-| `event` | yes | `installed` (first report of an installation), `settings_saved`, `upgraded` (plugin, system or runtime version changed since the last report), `api_key_check` (the key check result changed outside a settings save, see *The API key check*), `check` (sent by a command or test), `extensions` (an administrator sent the list of installed plugins, see *Installed plugins*). Lower case and `_`, at most 40 characters; other values are stored as given. |
+| `event` | yes | `installed` (first report of an installation), `settings_saved`, `upgraded` (plugin, system or runtime version changed since the last report), `api_key_check` (the key check result changed outside a settings save, see *The API key check*), `check` (sent by a command or test), `extensions` (an administrator sent the list of installed plugins, see *Installed plugins*), `languages` (an administrator sent the language mapping, see *Language mapping*). Lower case and `_`, at most 40 characters; other values are stored as given. |
 | `site_url` | yes | The base URL of the installation, as the system knows it (WordPress `home_url()`, TYPO3 site base, Magento base URL of the default store, the shop domain for Shopify, …). Absolute `http`/`https`. |
 | `plugin.name` | yes | The plugin's GitHub repository name (`Typo3-Supertext-Translation`). The dashboard reads the latest release from `github.com/Supertext/<name>`. |
 | `plugin.version` | yes | From the plugin's official version source (see the conventions → *Releases*), never a second hardcoded copy. |
@@ -88,8 +88,9 @@ Content-Type: application/json
 | `api_key_check.error_code` | no | Supertext's error code from the response body, if any (at most 100 characters) |
 | `api_keys` | no | For plugins with several API keys (WordPress: AI translation, professional orders, …): a list of 0 to 20 entries `{"name": "AI translation", "configured": true, "check": {…as api_key_check…}}`. `name` (1–60 characters, unique in the report) is what the plugin's settings call the key, never the key itself; `check` may be missing or `null` (not checked yet). When present, the dashboard stores every key and ignores `api_key_configured` and `api_key_check`; it keeps their summary (any key configured, the worst check: `invalid` before `error`, `unreachable`, `missing`, other values, `ok`), so lists and filters work the same. Plugins with one key may keep the two single-key fields. |
 | `extensions` | no | The other plugins, extensions, modules or themes installed on the site, at most 500: `{"name": "Polylang Pro", "version": "3.7.2", "active": true, "type": "plugin"}`. Only `name` (1–100 characters) is required; `type` is the system's own word in lower case (`plugin`, `theme`, `module`, `extension`, `bundle`, `package`, `app`, …). Missing: the report has no list and the dashboard keeps the last one. See *Installed plugins*. |
+| `languages` | no | The plugin's language mapping, at most 100 entries: `{"code": "de_CH", "supertext": "de-CH"}`, one per language configured in the system. `code` is the system's own code as it shows it (1–35 characters: letters, digits, `_ . @ -`); `supertext` the Supertext code it is translated as, or `null` when it isn't mapped. Missing: the report has no list and the dashboard keeps the last one. See *Language mapping*. |
 
-Unknown fields are accepted and ignored, so later versions can add fields without breaking older centers. The body may be at most 64 KB (room for a few hundred installed plugins); strings must not contain control characters. A malformed `api_key_check` is dropped and the rest of the report is stored, so a plugin bug there never loses the version information; the same goes for malformed `api_keys` entries, duplicate names and entries past 20, and for malformed `extensions` entries, duplicates (same type and name, ignoring case) and entries past 500 (a malformed `version`, `active` or `type` is stored as `null`).
+Unknown fields are accepted and ignored, so later versions can add fields without breaking older centers. The body may be at most 64 KB (room for a few hundred installed plugins); strings must not contain control characters. A malformed `api_key_check` is dropped and the rest of the report is stored, so a plugin bug there never loses the version information; the same goes for malformed `api_keys` entries, duplicate names and entries past 20, and for malformed `extensions` entries, duplicates (same type and name, ignoring case) and entries past 500 (a malformed `version`, `active` or `type` is stored as `null`), and for malformed `languages` entries, duplicate codes (ignoring case) and entries past 100 (a malformed `supertext` code is stored as `null`).
 
 Example with several keys (instead of `api_key_configured` and `api_key_check`):
 
@@ -177,6 +178,33 @@ Strings (use the system's own word instead of *plugins*: extensions in Joomla an
 | fr | Envoyer les plugins installés à Supertext | Envoie à Supertext la liste des plugins installés sur ce site (nom, version, actif ou non), afin que le support Supertext puisse vous aider en cas de conflit. Rien d'autre n'est transmis. | Envoyé : {count} plugins. | La liste n'a pas pu être envoyée. Réessayez plus tard. | Activez *Envoyer les informations de version à Supertext* pour envoyer la liste. |
 | it | Inviare i plugin installati a Supertext | Invia a Supertext l'elenco dei plugin installati su questo sito (nome, versione, attivo o no), affinché l'assistenza Supertext possa aiutarLa in caso di conflitti. Non viene trasmesso nient'altro. | Inviato: {count} plugin. | Non è stato possibile inviare l'elenco. Riprovi più tardi. | Attivi *Inviare le informazioni sulla versione a Supertext* per inviare l'elenco. |
 
+### Language mapping
+
+So Supertext can see which languages the plugins translate and spot sites with languages that can't be translated yet, a plugin can send its language mapping: every language configured in the system (CMS locales, store views, Fluent locales, …) with the Supertext code it maps to (see the conventions → *Languages*: the plugin's mapping, else an exact match, else the SDK default; `null` when none applies).
+
+```json
+"languages": [
+  { "code": "de_CH", "supertext": "de-CH" },
+  { "code": "fr_FR", "supertext": "fr-FR" },
+  { "code": "en_IE", "supertext": null }
+]
+```
+
+- **By default only by hand**, like the installed plugins: the settings page has a button *Send language settings to Supertext*. It sends a report with event `languages` and the mapping (Plugin Health ≥ 0.4: `sendLanguages(state, list)`). The plugin may put it next to *Send installed plugins to Supertext*.
+- **The developer may choose more:** a `languages` function given to Plugin Health makes every report carry the mapping.
+- **Off means off:** with *Send version information to Supertext* off the button sends nothing; the plugin says why.
+- Send the code the system shows (`de_CH`, not a translated name) and the Supertext code the plugin would actually use, after its own resolution. Source and target languages alike; at most 100 (Plugin Health drops the rest).
+- The dashboard keeps the latest mapping per installation (`installations.languages`, `languages_at`), shows it on the installation page with unmapped languages marked, lists what changed in the history (*+ it → it-CH*, *de_CH: de-DE → de-CH*, *− en_IE*), finds sites by either code in the search, and counts the Supertext languages in the statistics API.
+
+Strings (`{count}` untranslated):
+
+| | Button | Help text | Sent | Failed | Reporting off |
+| --- | --- | --- | --- | --- | --- |
+| en | Send language settings to Supertext | Sends Supertext the languages of this site and the Supertext language each one is translated into. Nothing else is sent. | Sent: {count} languages. | The language settings couldn't be sent. Try again later. | Turn on *Send version information to Supertext* to send the language settings. |
+| de | Spracheinstellungen an Supertext senden | Sendet Supertext die Sprachen dieser Website und die Supertext-Sprache, in die jede übersetzt wird. Sonst wird nichts übertragen. | Gesendet: {count} Sprachen. | Die Spracheinstellungen konnten nicht gesendet werden. Versuchen Sie es später erneut. | Aktivieren Sie *Versionsinformationen an Supertext senden*, um die Spracheinstellungen zu senden. |
+| fr | Envoyer les paramètres de langue à Supertext | Envoie à Supertext les langues de ce site et la langue Supertext dans laquelle chacune est traduite. Rien d'autre n'est transmis. | Envoyé : {count} langues. | Les paramètres de langue n'ont pas pu être envoyés. Réessayez plus tard. | Activez *Envoyer les informations de version à Supertext* pour envoyer les paramètres de langue. |
+| it | Inviare le impostazioni linguistiche a Supertext | Invia a Supertext le lingue di questo sito e la lingua Supertext in cui viene tradotta ciascuna. Non viene trasmesso nient'altro. | Inviato: {count} lingue. | Non è stato possibile inviare le impostazioni linguistiche. Riprovi più tardi. | Attivi *Inviare le informazioni sulla versione a Supertext* per inviare le impostazioni linguistiche. |
+
 ### The callback ping
 
 So that Supertext can later call installations back (e.g. "translation ready"), the dashboard checks whether each installation is reachable from the internet: it calls the plugin's ping endpoint and checks the answer.
@@ -224,7 +252,7 @@ The *Translation proxy* tab shows which plugins send their translations through 
 
 ## Statistics API
 
-`GET /api/v1/stats` gives the totals the dashboard shows, per plugin, for reports, spreadsheets or other tools. Totals only: no site URLs, client names, notes or IP addresses, and of the other plugins installed on the sites only how many, never their names.
+`GET /api/v1/stats` gives the totals the dashboard shows, per plugin, for reports, spreadsheets or other tools. Totals only: no site URLs, client names, notes or IP addresses, and of the other plugins installed on the sites only how many, never their names. Language mappings are counted per code.
 
 - **Off** until `COMMANDO_STATS_TOKEN` is set in Railway (at least 32 characters, `openssl rand -base64 48`); then `404`.
 - **One shared token**, sent as `Authorization: Bearer <token>` (never in the URL, where it would land in logs). Compared in constant time (SHA-256 of both sides). Missing or wrong: `401` with `WWW-Authenticate: Bearer`. To revoke or rotate it, change the variable (Railway redeploys); everyone using it needs the new one.
@@ -241,7 +269,7 @@ curl -H "Authorization: Bearer $COMMANDO_STATS_TOKEN" https://pluginhealth.super
   "generated_at": "2026-11-09T12:00:00.000Z",
   "active_days": 30,
   "include_local": false,
-  "totals": { "installations": 42, "active": 37, "up_to_date": 30, "outdated": 9, "api_key_problem": 2, "unreachable": 3, "with_client": 25, "plugins": 12, "extensions": { "...": "as per plugin" } },
+  "totals": { "installations": 42, "active": 37, "up_to_date": 30, "outdated": 9, "api_key_problem": 2, "unreachable": 3, "with_client": 25, "plugins": 12, "extensions": { "...": "as per plugin" }, "languages": { "...": "as per plugin" } },
   "plugins": [
     {
       "plugin": "Strapi-Supertext-Translation",
@@ -257,6 +285,13 @@ curl -H "Authorization: Bearer $COMMANDO_STATS_TOKEN" https://pluginhealth.super
         "installed": { "min": 12, "median": 18, "mean": 18, "max": 24 },
         "active": { "min": 9, "median": 13.5, "mean": 13.5, "max": 18 },
         "by_type": [{ "type": "plugin", "installations": 2, "installed": { "min": 10, "median": 15, "mean": 15, "max": 20 } }]
+      },
+      "languages": {
+        "reported": 2,
+        "with_unmapped": 1,
+        "per_site": { "min": 2, "median": 2.5, "mean": 2.5, "max": 3 },
+        "supertext": [{ "value": "de-CH", "installations": 2 }, { "value": "fr-FR", "installations": 1 }],
+        "mappings": [{ "code": "de_CH", "supertext": "de-CH", "installations": 2 }, { "code": "en_IE", "supertext": null, "installations": 1 }]
       }
     }
   ]
@@ -273,6 +308,7 @@ curl -H "Authorization: Bearer $COMMANDO_STATS_TOKEN" https://pluginhealth.super
 | `with_client` | Mapped to a client in the dashboard |
 | `versions`, `system_versions`, `runtimes`, `sdk_versions`, `api_key_status` | Installations per value, most first; `null` = not reported (or the key not checked yet) |
 | `extensions` | How many other plugins the sites have installed (see *Installed plugins*): `reported` = installations that sent their list; `installed` and `active` = min, median, mean (one decimal) and max per site, `null` while no list was sent (`active` only over lists that say which are active); `by_type` = per type (`plugin`, `theme`, `mu-plugin`, …, `null` = not given) the installations listing at least one and how many each lists. Counts only, never names |
+| `languages` | The plugins' language mappings (see *Language mapping*): `reported` = installations that sent one; `with_unmapped` = of those, installations with at least one language without a Supertext code; `per_site` = languages per site (min, median, mean, max); `supertext` = installations using each Supertext code (a site counts once per code); `mappings` = installations per system code and the Supertext code it maps to (`null` = not mapped) |
 
 Plugins are sorted by installations. New fields may be added; clients should ignore what they don't know.
 

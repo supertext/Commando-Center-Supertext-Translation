@@ -32,6 +32,7 @@ const row = (o: Partial<StatsRow>): StatsRow => ({
   client_id: null,
   last_seen: now,
   extensions: null,
+  languages: null,
   ...o,
 });
 
@@ -69,6 +70,7 @@ describe('computeStats', () => {
   it('sums the totals and identifies no site or client', () => {
     expect(s.totals).toMatchObject({ installations: 4, active: 3, up_to_date: 2, outdated: 1, api_key_problem: 1, unreachable: 1, with_client: 1, plugins: 2 });
     expect(s.totals.extensions).toEqual({ reported: 0, installed: null, active: null, by_type: [] });
+    expect(s.totals.languages).toEqual({ reported: 0, with_unmapped: 0, per_site: null, supertext: [], mappings: [] });
     expect(s).toMatchObject({ generated_at: now.toISOString(), active_days: 30, include_local: false });
     expect(JSON.stringify(s)).not.toMatch(/site_url|client_id|client_name|notes/);
   });
@@ -100,5 +102,30 @@ describe('installed plugins (counts only)', () => {
 
   it('never returns the names of installed plugins', () => {
     expect(JSON.stringify(s)).not.toContain('secret-plugin');
+  });
+});
+
+describe('language mappings', () => {
+  const rows: StatsRow[] = [
+    row({ plugin: 'WP', languages: [{ code: 'de_CH', supertext: 'de-CH' }, { code: 'fr_FR', supertext: 'fr-FR' }, { code: 'en_IE', supertext: null }] }),
+    row({ plugin: 'WP', languages: [{ code: 'de', supertext: 'de-CH' }, { code: 'de_AT', supertext: 'de-CH' }] }),
+    row({ plugin: 'WP', languages: [] }),
+    row({ plugin: 'WP' }),
+  ];
+  const l = computeStats(rows, new Map(), false, now).plugins[0].languages;
+
+  it('counts Supertext languages per site and unmapped languages', () => {
+    expect(l).toMatchObject({ reported: 3, with_unmapped: 1, per_site: { min: 0, median: 2, mean: 1.7, max: 3 } });
+    expect(l.supertext).toEqual([
+      { value: 'de-CH', installations: 2 },
+      { value: 'fr-FR', installations: 1 },
+    ]);
+    expect(l.mappings).toEqual([
+      { code: 'de', supertext: 'de-CH', installations: 1 },
+      { code: 'de_AT', supertext: 'de-CH', installations: 1 },
+      { code: 'de_CH', supertext: 'de-CH', installations: 1 },
+      { code: 'en_IE', supertext: null, installations: 1 },
+      { code: 'fr_FR', supertext: 'fr-FR', installations: 1 },
+    ]);
   });
 });

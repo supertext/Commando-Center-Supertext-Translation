@@ -27,6 +27,7 @@ from supertext_plugin_health import (
     ReporterResult,
     ReporterState,
     normalize_extensions,
+    normalize_languages,
     parse_iso,
     ping_response,
     reporter_state,
@@ -121,6 +122,7 @@ def reporter(config: dict[str, Any], fakes: Fakes, now: float = 0.0, **overrides
         "transport": fakes,
         "now": lambda: now,
         "extensions": (lambda: config["extensions"]) if config.get("extensions") is not None else None,
+        "languages": (lambda: config["languages"]) if config.get("languages") is not None else None,
         **overrides,
     }
     return InstallationReporter(**options)
@@ -200,6 +202,8 @@ def run(r: InstallationReporter, step: dict[str, Any], state: ReporterState) -> 
         return r.test_connection(state, keys)
     if action == "sendExtensions":
         return r.send_extensions(state, step["extensions"])
+    if action == "sendLanguages":
+        return r.send_languages(state, step["languages"])
     assert action == "reportCheck"
     return r.report_check(state)
 
@@ -408,3 +412,24 @@ def test_a_failing_extensions_function_leaves_the_list_out() -> None:
     result = reporter(S["config"], fakes, extensions=boom).report_check(None)
     assert result.sent is True
     assert "extensions" not in fakes.bodies[0]
+
+
+def test_at_most_100_languages_and_long_codes_cut() -> None:
+    listed = [{"code": "x" * 50, "supertext": "y" * 50}]
+    listed += [{"code": f"l{n}", "supertext": "de-CH"} for n in range(120)]
+    out = normalize_languages(listed)
+    assert len(out) == 100
+    assert out[0] == {"code": "x" * 35, "supertext": "y" * 35}
+    assert normalize_languages([{"code": "Ü"}, "junk", {"code": "ü", "supertext": "de"}]) == [  # type: ignore[list-item]
+        {"code": "Ü", "supertext": None}
+    ]
+
+
+def test_a_failing_languages_function_leaves_the_mapping_out() -> None:
+    def boom() -> list[dict[str, Any]]:
+        raise RuntimeError("boom")
+
+    fakes = Fakes(None, {"status": 202})
+    result = reporter(S["config"], fakes, languages=boom).report_check(None)
+    assert result.sent is True
+    assert "languages" not in fakes.bodies[0]

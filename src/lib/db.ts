@@ -1,6 +1,6 @@
 import postgres from 'postgres';
 import { databaseUrls } from './db-url.mjs';
-import { worstCheck, type ApiKeyCheck, type Extension, type NamedApiKey, type Report } from './report';
+import { worstCheck, type ApiKeyCheck, type Extension, type LanguageMapping, type NamedApiKey, type Report } from './report';
 
 type Sql = postgres.Sql;
 
@@ -37,6 +37,9 @@ export interface Installation {
   /** The other plugins installed on the site, as last sent; null: never sent. */
   extensions: Extension[] | null;
   extensions_at: Date | null;
+  /** The plugin's language mapping, as last sent; null: never sent. */
+  languages: LanguageMapping[] | null;
+  languages_at: Date | null;
   callback_url: string | null;
   callback_status: string | null;
   callback_checked_at: Date | null;
@@ -65,6 +68,8 @@ export interface ReportRow {
   api_keys: StoredApiKey[] | null;
   /** The installed plugins this report carried; null: none. */
   extensions: Extension[] | null;
+  /** The language mapping this report carried; null: none. */
+  languages: LanguageMapping[] | null;
   changed: boolean;
 }
 
@@ -116,6 +121,11 @@ export function extensionsKey(list: Extension[] | null): string {
   );
 }
 
+/** The language mapping in a stable order, to notice a changed list. */
+export function languagesKey(list: LanguageMapping[] | null): string {
+  return JSON.stringify((list ?? []).map((l) => [l.code.toLowerCase(), l.supertext]).sort((a, b) => (a[0]! < b[0]! ? -1 : 1)));
+}
+
 function keyStatuses(keys: StoredApiKey[] | null): string {
   return JSON.stringify((keys ?? []).map((k) => [k.name, k.configured, k.status]));
 }
@@ -163,11 +173,12 @@ export async function recordReport(r: Report, sql: Sql = db()): Promise<{ instal
       const [row] = await tx<{ id: number }[]>`
         INSERT INTO installations (site_url, plugin, local, plugin_version, system, system_version, runtime,
           runtime_version, sdk_version, api_key_configured, api_key_status, api_key_checked_at, api_key_http_status,
-          api_key_error_code, api_keys, extensions, extensions_at, callback_url, last_event)
+          api_key_error_code, api_keys, extensions, extensions_at, languages, languages_at, callback_url, last_event)
         VALUES (${r.siteUrl}, ${r.plugin}, ${r.local}, ${r.pluginVersion}, ${r.system}, ${r.systemVersion},
           ${r.runtime}, ${r.runtimeVersion}, ${r.sdkVersion}, ${r.apiKeyConfigured}, ${key.status}, ${key.checkedAt},
           ${key.httpStatus}, ${key.errorCode}, ${apiKeys ? tx.json(apiKeys as never) : null},
-          ${r.extensions ? tx.json(r.extensions as never) : null}, ${r.extensions ? now : null}, ${r.callbackUrl}, ${r.event})
+          ${r.extensions ? tx.json(r.extensions as never) : null}, ${r.extensions ? now : null},
+          ${r.languages ? tx.json(r.languages as never) : null}, ${r.languages ? now : null}, ${r.callbackUrl}, ${r.event})
         ON CONFLICT (site_url, plugin) DO UPDATE SET last_seen = ${now}
         RETURNING id`;
       id = row.id;
@@ -184,7 +195,8 @@ export async function recordReport(r: Report, sql: Sql = db()): Promise<{ instal
         existing.api_key_configured !== r.apiKeyConfigured ||
         existing.api_key_status !== key.status ||
         keyStatuses(existing.api_keys) !== keyStatuses(apiKeys) ||
-        (r.extensions !== null && (existing.extensions === null || extensionsKey(existing.extensions) !== extensionsKey(r.extensions)));
+        (r.extensions !== null && (existing.extensions === null || extensionsKey(existing.extensions) !== extensionsKey(r.extensions))) ||
+        (r.languages !== null && (existing.languages === null || languagesKey(existing.languages) !== languagesKey(r.languages)));
       await tx`
         UPDATE installations SET plugin_version = ${r.pluginVersion}, system = ${r.system},
           system_version = ${r.systemVersion}, runtime = ${r.runtime}, runtime_version = ${r.runtimeVersion},
@@ -194,6 +206,8 @@ export async function recordReport(r: Report, sql: Sql = db()): Promise<{ instal
           api_keys = ${apiKeys ? tx.json(apiKeys as never) : null},
           extensions = ${r.extensions ? tx.json(r.extensions as never) : existing.extensions ? tx.json(existing.extensions as never) : null},
           extensions_at = ${r.extensions ? now : existing.extensions_at},
+          languages = ${r.languages ? tx.json(r.languages as never) : existing.languages ? tx.json(existing.languages as never) : null},
+          languages_at = ${r.languages ? now : existing.languages_at},
           callback_url = ${r.callbackUrl ?? existing.callback_url},
           last_event = ${r.event}, last_seen = ${now}, report_count = report_count + 1
         WHERE id = ${id}`;
@@ -201,12 +215,13 @@ export async function recordReport(r: Report, sql: Sql = db()): Promise<{ instal
     await tx`
       INSERT INTO reports (installation_id, received_at, event, plugin_version, system_version, runtime_version,
         sdk_version, api_key_configured, api_key_status, api_key_checked_at, api_key_http_status, api_key_error_code,
-        api_keys, extensions, changed)
+        api_keys, extensions, languages, changed)
       VALUES (${id}, ${now}, ${r.event}, ${r.pluginVersion}, ${r.systemVersion}, ${r.runtimeVersion}, ${r.sdkVersion},
         ${r.apiKeyConfigured}, ${check?.status ?? null}, ${check?.checkedAt ?? null}, ${check?.httpStatus ?? null},
         ${check?.errorCode ?? null},
         ${r.apiKeys ? tx.json(r.apiKeys.map((k) => storeKey(k.name, k.configured, k.check ? { ...k.check, checkedAt: k.check.checkedAt ?? now } : null)) as never) : null},
-        ${r.extensions ? tx.json(r.extensions as never) : null}, ${changed})`;
+        ${r.extensions ? tx.json(r.extensions as never) : null},
+        ${r.languages ? tx.json(r.languages as never) : null}, ${changed})`;
     return { installationId: id, created: !existing, changed };
   });
 }
@@ -252,7 +267,8 @@ export async function listInstallations(f: InstallationFilter = {}, sql: Sql = d
       ${
         like
           ? sql`AND (i.site_url ILIKE ${like} OR c.name ILIKE ${like} OR i.system ILIKE ${like} OR i.notes ILIKE ${like}
-              OR EXISTS (SELECT 1 FROM jsonb_array_elements(i.extensions) e WHERE e->>'name' ILIKE ${like}))`
+              OR EXISTS (SELECT 1 FROM jsonb_array_elements(i.extensions) e WHERE e->>'name' ILIKE ${like})
+              OR EXISTS (SELECT 1 FROM jsonb_array_elements(i.languages) l WHERE l->>'code' ILIKE ${like} OR l->>'supertext' ILIKE ${like}))`
           : sql``
       }
     ORDER BY i.last_seen DESC
@@ -273,7 +289,7 @@ export async function getInstallation(id: number, sql: Sql = db()): Promise<Inst
 export async function installationHistory(id: number, limit = 200, sql: Sql = db()): Promise<ReportRow[]> {
   return sql<ReportRow[]>`
     SELECT id, received_at, event, plugin_version, system_version, runtime_version, sdk_version, api_key_configured,
-      api_key_status, api_key_checked_at, api_key_http_status, api_key_error_code, api_keys, extensions, changed
+      api_key_status, api_key_checked_at, api_key_http_status, api_key_error_code, api_keys, extensions, languages, changed
     FROM reports WHERE installation_id = ${id} ORDER BY received_at DESC, id DESC LIMIT ${limit}`;
 }
 

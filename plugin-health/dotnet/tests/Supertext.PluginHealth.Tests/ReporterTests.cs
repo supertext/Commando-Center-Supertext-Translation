@@ -123,6 +123,7 @@ public class ReporterTests
                 "testConnection" => await reporter.TestConnectionAsync(state, apiKey),
                 "reportCheck" => await reporter.ReportCheckAsync(state),
                 "sendExtensions" => await reporter.SendExtensionsAsync(state, Extensions(step.GetProperty("extensions"))),
+                "sendLanguages" => await reporter.SendLanguagesAsync(state, Languages(step.GetProperty("languages"))),
                 _ => throw new InvalidOperationException("unknown action " + action),
             };
             var expect = step.GetProperty("expect");
@@ -278,6 +279,36 @@ public class ReporterTests
     }
 
     [Fact]
+    public void SendsAtMost100LanguagesAndCutsLongCodes()
+    {
+        var list = new List<LanguageMapping> { new(new string('x', 50), new string('y', 50)) };
+        list.AddRange(Enumerable.Range(0, 120).Select(n => new LanguageMapping($"l{n}", "de-CH")));
+        var output = InstallationReporter.NormalizeLanguages(list);
+        Assert.Equal(100, output.Count);
+        Assert.Equal(new LanguageMapping(new string('x', 35), new string('y', 35)), output[0]);
+        Assert.Equal([new LanguageMapping("Ü")], InstallationReporter.NormalizeLanguages([new("Ü", "  "), null, new("ü", "de")]));
+    }
+
+    [Fact]
+    public async Task AThrowingLanguagesFunctionLeavesTheMappingOut()
+    {
+        var http = new FakeCenter(Answer("""{"status":202}"""));
+        var reporter = new InstallationReporter(new ReporterOptions
+        {
+            Enabled = true,
+            SiteUrl = "https://cms.example.ch",
+            Plugin = new NameVersion("X", "1.0.0"),
+            System = new NameVersion("Y"),
+            KeyChecker = FakeChecker(null),
+            ReportUrl = ReportUrl,
+            HttpClient = new HttpClient(http),
+            Languages = () => throw new InvalidOperationException("boom"),
+        });
+        Assert.True((await reporter.ReportCheckAsync(null)).Sent);
+        Assert.False(reporter.BuildReport(ReportEvents.Check, ReporterState.Empty).ContainsKey("languages"));
+    }
+
+    [Fact]
     public async Task AThrowingExtensionsFunctionLeavesTheListOut()
     {
         var http = new FakeCenter(Answer("""{"status":202}"""));
@@ -335,10 +366,19 @@ public class ReporterTests
             HttpClient = new HttpClient(http),
             TimeProvider = clock,
             Extensions = config["extensions"] is { } list ? () => Extensions(JsonDocument.Parse(list.ToJsonString()).RootElement) : null,
+            Languages = config["languages"] is { } mapping ? () => Languages(JsonDocument.Parse(mapping.ToJsonString()).RootElement) : null,
         });
     }
 
     /// <summary>The spec's raw lists: entries without a string name become null, other wrong types are left out.</summary>
+    /// <summary>The spec's raw mappings: entries without a string code become null.</summary>
+    private static List<LanguageMapping?> Languages(JsonElement list) =>
+        list.EnumerateArray()
+            .Select(e => e.ValueKind == JsonValueKind.Object && e.TryGetProperty("code", out var c) && c.ValueKind == JsonValueKind.String
+                ? new LanguageMapping(c.GetString()!, e.TryGetProperty("supertext", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null)
+                : null)
+            .ToList();
+
     private static List<Extension?> Extensions(JsonElement list) =>
         list.EnumerateArray()
             .Select(e => e.ValueKind == JsonValueKind.Object && e.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String

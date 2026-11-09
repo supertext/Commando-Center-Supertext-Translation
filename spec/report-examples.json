@@ -318,6 +318,54 @@
           { "name": "Hyva_Theme", "version": null, "active": null, "type": null }
         ]
       }
+    },
+    {
+      "name": "The plugin's language mapping (event languages, sent with the plugin's button); en_IE isn't mapped",
+      "body": {
+        "schema": 1,
+        "event": "languages",
+        "site_url": "https://blog.example.ch/",
+        "plugin": { "name": "supertext-wordpress-polylang", "version": "2.2.0" },
+        "system": { "name": "WordPress", "version": "6.9" },
+        "languages": [
+          { "code": "de_CH", "supertext": "de-CH" },
+          { "code": "fr_FR", "supertext": "fr-FR" },
+          { "code": "en_IE", "supertext": null }
+        ]
+      },
+      "stored": {
+        "api_key_check": null,
+        "languages": [
+          { "code": "de_CH", "supertext": "de-CH" },
+          { "code": "fr_FR", "supertext": "fr-FR" },
+          { "code": "en_IE", "supertext": null }
+        ]
+      }
+    },
+    {
+      "name": "Languages: malformed entries and duplicate codes are dropped, a malformed Supertext code becomes null",
+      "body": {
+        "schema": 1,
+        "event": "languages",
+        "site_url": "https://www.example.ch",
+        "plugin": { "name": "Typo3-Supertext-Translation", "version": "0.9.0" },
+        "system": { "name": "TYPO3", "version": "14.0.1" },
+        "languages": [
+          { "code": "de", "supertext": "de-DE" },
+          { "code": "DE", "supertext": "de-CH" },
+          { "code": "it", "supertext": "Italian!" },
+          { "code": "", "supertext": "fr-FR" },
+          "en",
+          { "supertext": "en-US" }
+        ]
+      },
+      "stored": {
+        "api_key_check": null,
+        "languages": [
+          { "code": "de", "supertext": "de-DE" },
+          { "code": "it", "supertext": null }
+        ]
+      }
     }
   ],
   "invalid": [

@@ -61,7 +61,7 @@ Hover a badge for the details and time. A site that isn't reachable still works 
 
 ### Filters
 
-Search by URL, client, system, notes or the name of an installed plugin (*WPML* finds every site that sent a list with WPML in it); filter by plugin, client (or *Not mapped*), plugin version status, API key check and reachability. *Update available* answers "who still runs an old version?":
+Search by URL, client, system, notes the name of an installed plugin (*WPML* finds every site that sent a list with WPML in it) or a language code (*de-CH*, *en_IE*); filter by plugin, client (or *Not mapped*), plugin version status, API key check and reachability. *Update available* answers "who still runs an old version?":
 
 ![Installations filtered to Update available: only the sites with an outdated plugin version](images/installations-outdated.png)
 
@@ -87,9 +87,13 @@ Under **Reachable from the internet** you see the plugin's ping endpoint, the la
 
 Under **Installed plugins** you see the other plugins installed on the site (name, type, version, active or not), as the site's administrator last sent them. Plugins don't send this list on their own: the administrator presses *Send installed plugins to Supertext* in the Supertext plugin's settings, for example when you ask for it in a support case. *Not sent* means nobody has pressed it yet, or the plugin version doesn't have the button.
 
+Under **Languages** you see the plugin's language mapping: each language configured on the site and the Supertext language it is translated into. *not mapped* marks a language the plugin can't translate yet; the customer picks a Supertext language for it in the plugin's settings. Like the installed plugins, it is only sent when the administrator presses *Send language settings to Supertext*.
+
+![Languages: the WordPress languages of a site with the Supertext language each maps to, one marked as not mapped](images/installation-languages.png)
+
 ![Installed plugins: the list a WordPress site sent, with name, type, version and whether each plugin is active](images/installation-extensions.png)
 
-The **History** lists every report, newest first, with its key check result and what changed compared with the report before: *Plugin 2.0.0 → 2.1.0*, *WordPress 6.8.3 → 6.9.0*, *API key rejected → ok*, and for a sent list of installed plugins what changed since the last one: *+ Yoast SEO 24.1*, *Polylang 3.6 → 3.7*, *Akismet deactivated*, *− WPML*. Reports sent after an update carry no key check; the installation keeps the result of the last check. A plugin reports when its settings are saved and after the plugin, the system or the runtime was updated (with the next back-end request after the update).
+The **History** lists every report, newest first, with its key check result and what changed compared with the report before: *Plugin 2.0.0 → 2.1.0*, *WordPress 6.8.3 → 6.9.0*, *API key rejected → ok*, and for a sent list of installed plugins what changed since the last one: *+ Yoast SEO 24.1*, *Polylang 3.6 → 3.7*, *Akismet deactivated*, *− WPML*, and for a sent language mapping what changed: *+ rm → not mapped*, *en_IE: not mapped → en-GB*. Reports sent after an update carry no key check; the installation keeps the result of the last check. A plugin reports when its settings are saved and after the plugin, the system or the runtime was updated (with the next back-end request after the update).
 
 ## Map installations to clients
 

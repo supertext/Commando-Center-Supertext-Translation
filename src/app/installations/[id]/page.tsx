@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/session';
 import { getInstallation, installationHistory, listClients, pingHistory, type Installation, type ReportRow } from '@/lib/db';
 import { latestRelease, repoUrl } from '@/lib/releases';
 import { extensionChanges, sortExtensions } from '@/lib/extensions';
+import { languageChanges, sortLanguages } from '@/lib/languages';
 import { CallbackStatus, EVENT_LABEL, KeyStatus, NameVersion, PluginVersion, ago, formatDate, keyStatusWord } from '@/components/ui';
 import ConfirmButton from '@/components/confirm-button';
 import { pingNow, removeInstallation, saveInstallation } from '../../actions';
@@ -18,6 +19,11 @@ function changes(history: ReportRow[], k: number, i: Installation): string[] {
   if (row.extensions) {
     const prev = history.slice(k + 1).find((h) => h.extensions)?.extensions ?? null;
     out.push(...extensionChanges(prev, row.extensions));
+  }
+  // Language mapping: compared with the last report that carried one.
+  if (row.languages) {
+    const prev = history.slice(k + 1).find((h) => h.languages)?.languages ?? null;
+    out.push(...languageChanges(prev, row.languages));
   }
   return out;
 }
@@ -274,6 +280,52 @@ export default async function InstallationPage({
               </tbody>
             </table>
           </div>
+        )}
+      </section>
+
+      <h2 id="languages">Languages</h2>
+      <section className="card" aria-labelledby="languages">
+        {i.languages === null ? (
+          <p className="muted" style={{ padding: '14px 20px', margin: 0 }}>
+            Not sent. The site&apos;s administrator sends the plugin&apos;s language mapping with the button in the
+            Supertext plugin&apos;s settings (plugins with Plugin Health 0.4 or newer).
+          </p>
+        ) : (
+          <>
+            <p className="small" style={{ padding: '14px 20px 0', margin: 0 }}>
+              {i.languages.length} {i.languages.length === 1 ? 'language' : 'languages'},{' '}
+              {i.languages.filter((l) => l.supertext === null).length} not mapped · sent{' '}
+              {i.languages_at ? `${formatDate(i.languages_at)} (${ago(i.languages_at)})` : '–'}
+            </p>
+            {i.languages.length > 0 && (
+              <div className="table-wrap" style={{ marginTop: 12, borderTop: '1px solid var(--line)' }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>{i.system} language</th>
+                      <th>Supertext language</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortLanguages(i.languages).map((l) => (
+                      <tr key={l.code}>
+                        <td className="mono">{l.code}</td>
+                        <td>
+                          {l.supertext === null ? (
+                            <span className="badge bad" title="Translating into or from this language fails until it is mapped in the plugin's settings">
+                              not mapped
+                            </span>
+                          ) : (
+                            <span className="mono">{l.supertext}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </section>
 

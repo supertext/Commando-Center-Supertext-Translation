@@ -14,13 +14,13 @@
 
 import config from './config.json' with { type: 'json' }
 
-export const PLUGIN_HEALTH_VERSION = '0.3.0'
+export const PLUGIN_HEALTH_VERSION = '0.4.0'
 /** The live Plugin Health dashboard, from config.json (plugin-health/config.json). SUPERTEXT_REPORT_URL overrides it. */
 export const DEFAULT_REPORT_URL: string = config.reportUrl
 export const REPORT_TIMEOUT_MS = 3_000
 export const FAILURE_BACKOFF_MS = 3_600_000
 
-export type ReportEvent = 'installed' | 'settings_saved' | 'upgraded' | 'api_key_check' | 'check' | 'extensions'
+export type ReportEvent = 'installed' | 'settings_saved' | 'upgraded' | 'api_key_check' | 'check' | 'extensions' | 'languages'
 
 /** The result of the SDK's API key check, as the reporter stores and reports it. */
 export interface KeyCheck {
@@ -108,6 +108,36 @@ export function normalizeExtensions(list: Iterable<Extension>): Extension[] {
   return out
 }
 
+/** One language of the system and the Supertext code it is translated as (see `sendLanguages`). */
+export interface LanguageMapping {
+  /** The system's own code, as it shows it: de_CH, en-GB, zh_Hans_CN, … */
+  code: string
+  /** The Supertext code the plugin uses for it (de-CH, fr-FR, zh-Hans, …); null or left out: not mapped. */
+  supertext?: string | null
+}
+
+/** At most this many languages are sent; the rest are left out. */
+export const MAX_LANGUAGES = 100
+
+/**
+ * The mapping as it is sent: codes trimmed and cut to 35 characters, a blank Supertext code sent as null,
+ * blank codes and repeats (same code, ignoring case) dropped, at most MAX_LANGUAGES.
+ */
+export function normalizeLanguages(list: Iterable<LanguageMapping>): Array<{ code: string; supertext: string | null }> {
+  const out: Array<{ code: string; supertext: string | null }> = []
+  const seen = new Set<string>()
+  for (const l of list) {
+    if (out.length >= MAX_LANGUAGES) break
+    if (!l || typeof l !== 'object' || typeof l.code !== 'string') continue
+    const code = l.code.trim().slice(0, 35)
+    if (!code || seen.has(code.toLowerCase())) continue
+    seen.add(code.toLowerCase())
+    const supertext = typeof l.supertext === 'string' ? l.supertext.trim().slice(0, 35) : ''
+    out.push({ code, supertext: supertext || null })
+  }
+  return out
+}
+
 export interface NameVersion {
   name: string
   version?: string | null
@@ -141,6 +171,11 @@ export interface ReporterOptions {
    * them only by hand (`sendExtensions`, the plugin's button): the default. Only where the list is cheap.
    */
   extensions?: () => Iterable<Extension>
+  /**
+   * Optional: returns the language mapping, so that every report carries it. Leave it out to send it
+   * only by hand (`sendLanguages`, the plugin's button): the default.
+   */
+  languages?: () => Iterable<LanguageMapping>
   /** Default: `SUPERTEXT_REPORT_URL` from the environment, else the live center. */
   reportUrl?: string
   /** HTTP for the report (tests). Default: the global `fetch`. */
@@ -342,8 +377,24 @@ export class InstallationReporter {
     return this.#send(state ?? EMPTY_REPORTER_STATE, 'extensions', normalizeExtensions(extensions))
   }
 
-  /** The report body for an event and state (`extensions`: the list to send; default: the extensions function's, if any). */
-  buildReport(event: ReportEvent, state: ReporterState, extensions?: Extension[] | null): Record<string, unknown> {
+  /**
+   * The plugin's "Send language settings to Supertext" button: sends event `languages` with the mapping
+   * now, even after a recent failure, but only while reporting is on (`sent` false otherwise).
+   */
+  async sendLanguages(state: ReporterState | null, languages: Iterable<LanguageMapping>): Promise<ReporterResult> {
+    return this.#send(state ?? EMPTY_REPORTER_STATE, 'languages', null, normalizeLanguages(languages))
+  }
+
+  /**
+   * The report body for an event and state (`extensions`, `languages`: the lists to send; default: the
+   * extensions and languages functions', if any).
+   */
+  buildReport(
+    event: ReportEvent,
+    state: ReporterState,
+    extensions?: Extension[] | null,
+    languages?: LanguageMapping[] | null,
+  ): Record<string, unknown> {
     const o = this.#options
     const body: Record<string, unknown> = {
       schema: 1,
@@ -363,7 +414,18 @@ export class InstallationReporter {
     if (o.callbackUrl) body.callback = { url: o.callbackUrl }
     const list = extensions ?? this.#extensions()
     if (list) body.extensions = list
+    const mapping = languages ? normalizeLanguages(languages) : this.#languages()
+    if (mapping) body.languages = mapping
     return body
+  }
+
+  #languages(): Array<{ code: string; supertext: string | null }> | null {
+    if (!this.#options.languages) return null
+    try {
+      return normalizeLanguages(this.#options.languages())
+    } catch {
+      return null // never fails the report: the mapping is extra information
+    }
   }
 
   #extensions(): Extension[] | null {
@@ -429,7 +491,12 @@ export class InstallationReporter {
     return this.#send(state, event)
   }
 
-  async #send(state: ReporterState, event: ReportEvent, extensions: Extension[] | null = null): Promise<ReporterResult> {
+  async #send(
+    state: ReporterState,
+    event: ReportEvent,
+    extensions: Extension[] | null = null,
+    languages: LanguageMapping[] | null = null,
+  ): Promise<ReporterResult> {
     if (!this.#options.enabled) return { state, check: state.keyCheck, checks: state.keyChecks, event: null, sent: false }
     let ok = false
     try {
@@ -440,7 +507,7 @@ export class InstallationReporter {
           Accept: 'application/json',
           'User-Agent': `supertext-plugin-health/${PLUGIN_HEALTH_VERSION} (typescript) ${this.#options.plugin.name}/${this.#options.plugin.version}`,
         },
-        body: JSON.stringify(this.buildReport(event, state, extensions)),
+        body: JSON.stringify(this.buildReport(event, state, extensions, languages)),
         signal: AbortSignal.timeout(REPORT_TIMEOUT_MS),
       })
       ok = response.status >= 200 && response.status < 300

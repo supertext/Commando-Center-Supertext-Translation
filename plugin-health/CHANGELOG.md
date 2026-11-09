@@ -4,6 +4,12 @@ All five languages share one version. Changes not yet released go under *Unrelea
 
 ## Unreleased
 
+## 0.4.0 — 2026-11-09
+
+### Added
+
+- Language mapping: `sendLanguages(state, list)` (PHP `sendLanguages`, Python `send_languages`, .NET `SendLanguagesAsync`, Java `sendLanguages`) sends each language configured in the system with the Supertext code it maps to (`code`, `supertext`, `null` when not mapped) with the new event `languages`, for the plugin's *Send language settings to Supertext* button: now, even after a recent failure, but only while reporting is on. Optional `languages` function in the options: every report then carries the mapping. Codes trimmed and cut to 35 characters, blank codes and repeats dropped, at most 100 (`MAX_LANGUAGES`, `normalizeLanguages`). New types: TypeScript `LanguageMapping`, .NET and Java `LanguageMapping` records, Python `LanguageMapping` (a mapping). `buildReport` takes the mapping as an optional last argument. Spec: three scenarios in `spec/reporter.json`. Needs the dashboard with migration 006 (older dashboards store the report and ignore the mapping).
+
 ## 0.3.0 — 2026-11-08
 
 ### Added

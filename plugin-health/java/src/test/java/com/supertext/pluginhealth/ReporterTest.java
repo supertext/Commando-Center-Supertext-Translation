@@ -141,7 +141,26 @@ class ReporterTest {
             List<Extension> listed = extensions(config.get("extensions"));
             b.extensions(() -> listed);
         }
+        if (config.get("languages") != null) {
+            List<LanguageMapping> mapping = languages(config.get("languages"));
+            b.languages(() -> mapping);
+        }
         return b;
+    }
+
+    /** The spec's raw mappings: entries without a string code get a null code. */
+    private static List<LanguageMapping> languages(Object value) {
+        List<LanguageMapping> out = new ArrayList<>();
+        for (Object o : (List<?>) value) {
+            if (!(o instanceof Map)) {
+                out.add(null);
+                continue;
+            }
+            Map<String, Object> e = map(o);
+            out.add(new LanguageMapping(e.get("code") instanceof String ? (String) e.get("code") : null,
+                    e.get("supertext") instanceof String ? (String) e.get("supertext") : null));
+        }
+        return out;
     }
 
     /** The spec's raw lists: entries without a string name get a null name, other wrong types are left out. */
@@ -246,6 +265,9 @@ class ReporterTest {
                         break;
                     case "sendExtensions":
                         r = reporter.sendExtensions(state, extensions(step.get("extensions")));
+                        break;
+                    case "sendLanguages":
+                        r = reporter.sendLanguages(state, languages(step.get("languages")));
                         break;
                     default:
                         throw new AssertionError("unknown action " + action);
@@ -467,6 +489,30 @@ class ReporterTest {
         assertEquals(new Extension("x".repeat(100), "v".repeat(50), null, "p".repeat(30)), out.get(0));
         assertEquals(List.of(new Extension("Über", null, null, "thème")), InstallationReporter.normalizeExtensions(
                 java.util.Arrays.asList(new Extension("Über", null, null, "THÈME"), null, new Extension("über", null, null, "thème"))));
+    }
+
+    @Test
+    void sendsAtMost100LanguagesAndCutsLongCodes() {
+        List<LanguageMapping> listed = new ArrayList<>();
+        listed.add(new LanguageMapping("x".repeat(50), "y".repeat(50)));
+        for (int n = 0; n < 120; n++) {
+            listed.add(new LanguageMapping("l" + n, "de-CH"));
+        }
+        List<LanguageMapping> out = InstallationReporter.normalizeLanguages(listed);
+        assertEquals(100, out.size());
+        assertEquals(new LanguageMapping("x".repeat(35), "y".repeat(35)), out.get(0));
+        assertEquals(List.of(new LanguageMapping("Ü", null)), InstallationReporter.normalizeLanguages(
+                java.util.Arrays.asList(new LanguageMapping("Ü", "  "), null, new LanguageMapping("ü", "de"))));
+    }
+
+    @Test
+    void aThrowingLanguagesFunctionLeavesTheMappingOut() {
+        Fakes f = new Fakes(null, map(Json.parse("{\"status\":202}")));
+        InstallationReporter reporter = configured(CONFIG, f).reportUrl(REPORT_URL).transport(f).languages(() -> {
+            throw new IllegalStateException("boom");
+        }).build();
+        assertTrue(reporter.reportCheck(null).isSent());
+        assertFalse(map(f.bodies.get(0)).containsKey("languages"));
     }
 
     @Test

@@ -28,6 +28,21 @@ export interface Report {
    * plugins" button (event extensions), or with every report if the plugin's developer chose so.
    */
   extensions: Extension[] | null;
+  /**
+   * The plugin's language mapping (field languages): each language configured in the system with the
+   * Supertext code it maps to, or null when the report has no list. Sent like extensions: by an
+   * administrator's button (event languages) by default, or with every report if the plugin's developer
+   * chose so.
+   */
+  languages: LanguageMapping[] | null;
+}
+
+/** One language of the system and the Supertext code it is translated as (null: not mapped). */
+export interface LanguageMapping {
+  /** The system's own code, as it shows it: de_CH, en-GB, fr, zh_Hans_CN, … */
+  code: string;
+  /** The Supertext code (de-CH, fr-FR, zh-Hans, …), or null when the language isn't mapped. */
+  supertext: string | null;
 }
 
 /** Another plugin, extension, module or theme installed on the site. */
@@ -57,13 +72,15 @@ export interface ApiKeyCheck {
 
 export const KEY_STATUSES = ['ok', 'invalid', 'missing', 'unreachable', 'error'] as const;
 
-export const KNOWN_EVENTS = ['installed', 'settings_saved', 'upgraded', 'api_key_check', 'check', 'extensions'] as const;
+export const KNOWN_EVENTS = ['installed', 'settings_saved', 'upgraded', 'api_key_check', 'check', 'extensions', 'languages'] as const;
 /** Room for a list of a few hundred installed plugins. */
 export const MAX_BODY_BYTES = 64 * 1024;
 /** At most this many named keys per report; more are ignored. */
 export const MAX_API_KEYS = 20;
 /** At most this many installed plugins per report; more are ignored. */
 export const MAX_EXTENSIONS = 500;
+/** At most this many language codes per report; more are ignored. */
+export const MAX_LANGUAGES = 100;
 
 /** Worst first: the summary of several keys is the first status in this order that any key has. */
 const STATUS_ORDER = ['invalid', 'error', 'unreachable', 'missing'];
@@ -177,6 +194,32 @@ export function parseExtensions(value: unknown): Extension[] | null {
   return out;
 }
 
+/** A Supertext language code: de, de-CH, zh-Hans, sr-Latn, gsw-u-sd-chzh. */
+const SUPERTEXT_CODE = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8}){0,6}$/;
+/** A system's language code: de_CH, en-GB, zh_Hans_CN, default, … */
+const SYSTEM_CODE = /^[A-Za-z0-9][A-Za-z0-9_.@-]{0,34}$/;
+
+/**
+ * Optional languages: [{code, supertext}], at most MAX_LANGUAGES. Codes are kept as sent (trimmed);
+ * entries with a malformed code, duplicates (same code, ignoring case) and entries past the limit are
+ * dropped, a malformed supertext code becomes null, and a value that isn't a list counts as absent.
+ */
+export function parseLanguages(value: unknown): LanguageMapping[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: LanguageMapping[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (out.length >= MAX_LANGUAGES) break;
+    const e = obj(entry);
+    const code = e && typeof e.code === 'string' ? e.code.trim() : '';
+    if (!SYSTEM_CODE.test(code) || seen.has(code.toLowerCase())) continue;
+    seen.add(code.toLowerCase());
+    const st = typeof e!.supertext === 'string' ? e!.supertext.trim() : '';
+    out.push({ code, supertext: st.length <= 35 && SUPERTEXT_CODE.test(st) ? st : null });
+  }
+  return out;
+}
+
 /** Optional {"url": "..."}; anything malformed is dropped like a malformed key check. */
 export function parseCallback(value: unknown): string | null {
   const c = obj(value);
@@ -229,6 +272,7 @@ export function parseReport(body: unknown, now = Date.now()): ParseResult {
       callbackUrl: parseCallback(b.callback),
       apiKeys,
       extensions: parseExtensions(b.extensions),
+      languages: parseLanguages(b.languages),
     },
   };
 }

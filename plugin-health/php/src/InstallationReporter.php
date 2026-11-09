@@ -52,12 +52,16 @@ final class InstallationReporter
     public const EVENT_API_KEY_CHECK = 'api_key_check';
     public const EVENT_CHECK = 'check';
     public const EVENT_EXTENSIONS = 'extensions';
+    public const EVENT_LANGUAGES = 'languages';
 
     /** At most this many named keys are checked and reported; the rest are ignored. */
     public const MAX_API_KEYS = 20;
 
     /** At most this many installed plugins are sent; the rest are left out. */
     public const MAX_EXTENSIONS = 500;
+
+    /** At most this many languages are sent; the rest are left out. */
+    public const MAX_LANGUAGES = 100;
 
     private const CHALLENGE = '/^[A-Za-z0-9_-]{16,64}$/D';
 
@@ -74,6 +78,9 @@ final class InstallationReporter
 
     /** @var (callable(): iterable<mixed>)|null */
     private $extensions;
+
+    /** @var (callable(): iterable<mixed>)|null */
+    private $languages;
 
     /**
      * @param bool                     $enabled        the "Send version information to Supertext" setting combined with the environment: see reportsEnabled()
@@ -92,6 +99,8 @@ final class InstallationReporter
      * @param (callable(): float)|null $now            wall-clock Unix time in seconds (for tests)
      * @param (callable(): iterable<mixed>)|null $extensions optional: returns the installed plugins (see sendExtensions()), so that
      *                                                     every report carries them; leave it out to send them only by hand (the default)
+     * @param (callable(): iterable<mixed>)|null $languages  optional: returns the language mapping (see sendLanguages()), so that
+     *                                                     every report carries it; leave it out to send it only by hand (the default)
      */
     public function __construct(
         private readonly bool $enabled,
@@ -109,6 +118,7 @@ final class InstallationReporter
         private readonly ?HttpTransport $transport = null,
         ?callable $now = null,
         ?callable $extensions = null,
+        ?callable $languages = null,
     ) {
         if ($runtimeName === null || $runtimeName === '') {
             $this->runtimeName = 'PHP';
@@ -125,6 +135,7 @@ final class InstallationReporter
         };
         $this->now = $now ?? static fn (): float => microtime(true);
         $this->extensions = $extensions;
+        $this->languages = $languages;
     }
 
     /**
@@ -169,6 +180,39 @@ final class InstallationReporter
                 $entry['type'] = $type;
             }
             $out[] = $entry;
+        }
+
+        return $out;
+    }
+
+    /**
+     * The language mapping as it is sent: codes trimmed and cut to 35 characters, a blank Supertext code sent
+     * as null, blank codes and repeats (same code, ignoring case) dropped, at most MAX_LANGUAGES.
+     *
+     * @param iterable<mixed> $languages entries ['code' => 'de_CH', 'supertext' => 'de-CH']; supertext null or
+     *                                   left out: not mapped
+     *
+     * @return list<array{code: string, supertext: string|null}>
+     */
+    public static function normalizeLanguages(iterable $languages): array
+    {
+        $out = [];
+        $seen = [];
+        foreach ($languages as $l) {
+            if (\count($out) >= self::MAX_LANGUAGES) {
+                break;
+            }
+            if (!\is_array($l) || !\is_string($l['code'] ?? null)) {
+                continue;
+            }
+            $code = self::cut(trim($l['code']), 35);
+            $id = self::lower($code);
+            if ($code === '' || isset($seen[$id])) {
+                continue;
+            }
+            $seen[$id] = true;
+            $supertext = \is_string($l['supertext'] ?? null) ? self::cut(trim($l['supertext']), 35) : '';
+            $out[] = ['code' => $code, 'supertext' => $supertext === '' ? null : $supertext];
         }
 
         return $out;
@@ -327,14 +371,27 @@ final class InstallationReporter
     }
 
     /**
+     * The plugin's "Send language settings to Supertext" button: sends event `languages` with the mapping now,
+     * even after a recent failure, but only while reporting is on (sent false otherwise).
+     *
+     * @param iterable<mixed> $languages see normalizeLanguages()
+     */
+    public function sendLanguages(?ReporterState $state, iterable $languages): ReporterResult
+    {
+        return $this->send($state ?? ReporterState::empty(), self::EVENT_LANGUAGES, null, self::normalizeLanguages($languages));
+    }
+
+    /**
      * The report body for an event and state.
      *
      * @param list<array{name: string, version?: string, active?: bool, type?: string}>|null $extensions the list to send;
      *                                                                                               default: the extensions function's, if any
+     * @param list<array{code: string, supertext: string|null}>|null                         $languages  the mapping to send;
+     *                                                                                               default: the languages function's, if any
      *
      * @return array<string, mixed>
      */
-    public function buildReport(string $event, ReporterState $state, ?array $extensions = null): array
+    public function buildReport(string $event, ReporterState $state, ?array $extensions = null, ?array $languages = null): array
     {
         $body = [
             'schema' => 1,
@@ -364,8 +421,25 @@ final class InstallationReporter
         if ($list !== null) {
             $body['extensions'] = $list;
         }
+        $mapping = $languages ?? $this->configuredLanguages();
+        if ($mapping !== null) {
+            $body['languages'] = $mapping;
+        }
 
         return $body;
+    }
+
+    /** @return list<array{code: string, supertext: string|null}>|null */
+    private function configuredLanguages(): ?array
+    {
+        if ($this->languages === null) {
+            return null;
+        }
+        try {
+            return self::normalizeLanguages(($this->languages)());
+        } catch (\Throwable) {
+            return null; // never fails the report: the mapping is extra information
+        }
     }
 
     /** @return list<array{name: string, version?: string, active?: bool, type?: string}>|null */
@@ -514,8 +588,11 @@ final class InstallationReporter
         return $this->send($state, $event);
     }
 
-    /** @param list<array{name: string, version?: string, active?: bool, type?: string}>|null $extensions */
-    private function send(ReporterState $state, string $event, ?array $extensions = null): ReporterResult
+    /**
+     * @param list<array{name: string, version?: string, active?: bool, type?: string}>|null $extensions
+     * @param list<array{code: string, supertext: string|null}>|null                         $languages
+     */
+    private function send(ReporterState $state, string $event, ?array $extensions = null, ?array $languages = null): ReporterResult
     {
         if (!$this->enabled) {
             return new ReporterResult($state, $state->keyCheck, null, false, $state->keyChecks);
@@ -523,7 +600,7 @@ final class InstallationReporter
         $ok = false;
         try {
             $transport = $this->transport ?? new CurlTransport();
-            $body = json_encode($this->buildReport($event, $state, $extensions), self::JSON | JSON_THROW_ON_ERROR);
+            $body = json_encode($this->buildReport($event, $state, $extensions, $languages), self::JSON | JSON_THROW_ON_ERROR);
             $response = $transport->send(new HttpRequest('POST', $this->reportUrl, [
                 'Content-Type' => 'application/json',
                 'Accept' => 'application/json',

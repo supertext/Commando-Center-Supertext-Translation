@@ -207,6 +207,38 @@ describe('report endpoint and store', () => {
     });
   });
 
+  describe('language mapping', () => {
+    const site = { ...base, site_url: 'https://languages.example.ch', plugin: { name: 'supertext-wordpress-polylang', version: '2.2.0' }, system: { name: 'WordPress' } };
+    const ip = { 'x-forwarded-for': '198.51.100.32' };
+    const find = async () => (await store.listInstallations({ q: 'languages.example.ch' }))[0];
+
+    it('stores the mapping, keeps it on reports without one and finds sites by language', async () => {
+      await post({ ...site, event: 'installed' }, ip);
+      expect((await find()).languages).toBeNull();
+      const list = [
+        { code: 'de_CH', supertext: 'de-CH' },
+        { code: 'en_AU', supertext: null },
+      ];
+      await post({ ...site, event: 'languages', languages: list }, ip);
+      let i = await find();
+      expect(i.languages).toEqual(list);
+      expect(i.languages_at).toBeInstanceOf(Date);
+      expect((await store.installationHistory(i.id))[0]).toMatchObject({ event: 'languages', languages: list, changed: true });
+
+      await post({ ...site, event: 'settings_saved' }, ip);
+      i = await find();
+      expect(i.languages).toEqual(list);
+      expect((await store.installationHistory(i.id))[0]).toMatchObject({ languages: null, changed: false });
+
+      await post({ ...site, event: 'languages', languages: [...list].reverse() }, ip);
+      expect((await store.installationHistory(i.id))[0].changed).toBe(false);
+      await post({ ...site, event: 'languages', languages: [list[0], { code: 'en_AU', supertext: 'en-GB' }] }, ip);
+      expect((await store.installationHistory(i.id))[0].changed).toBe(true);
+
+      expect((await store.listInstallations({ q: 'en_AU' })).map((x) => x.id)).toEqual([i.id]);
+    });
+  });
+
   describe('API key check', () => {
     const site = { ...base, site_url: 'https://keys.example.ch', plugin: { name: 'Strapi-Supertext-Translation', version: '0.2.0' }, system: { name: 'Strapi' } };
     const ip = { 'x-forwarded-for': '198.51.100.20' };
@@ -421,6 +453,9 @@ describe('statistics API', () => {
     const typo3 = all.filter((i) => i.plugin === 'Typo3-Supertext-Translation').length;
     expect(body.plugins.find((p: { plugin: string }) => p.plugin === 'Typo3-Supertext-Translation')).toMatchObject({ installations: typo3 });
     expect(JSON.stringify(body)).not.toContain('kunde.ch');
+    const deCh = all.filter((i) => i.languages?.some((l) => l.supertext === 'de-CH')).length;
+    expect(deCh).toBeGreaterThan(0);
+    expect(body.totals.languages.supertext).toContainEqual({ value: 'de-CH', installations: deCh });
 
     const withLocal = await (await get(`Bearer ${TOKEN}`, '?local=1')).json();
     expect(withLocal.totals.installations).toBe((await store.listInstallations({ includeLocal: true })).length);

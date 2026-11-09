@@ -27,10 +27,12 @@ __all__ = [
     "FAILURE_BACKOFF",
     "MAX_API_KEYS",
     "MAX_EXTENSIONS",
+    "MAX_LANGUAGES",
     "REPORT_TIMEOUT",
     "ApiKeys",
     "Extension",
     "InstallationReporter",
+    "LanguageMapping",
     "NameVersion",
     "PingResponse",
     "ReportEvent",
@@ -38,6 +40,7 @@ __all__ = [
     "ReporterState",
     "StateInput",
     "normalize_extensions",
+    "normalize_languages",
     "ping_response",
     "reporter_state",
     "reports_enabled",
@@ -70,7 +73,7 @@ MAX_API_KEYS: Final = 20
 """At most this many named keys are checked and reported; the rest are ignored."""
 """A state as the plugin stored it: a :class:`ReporterState`, its ``to_dict()``, its JSON, or ``None``."""
 
-ReportEvent = Literal["installed", "settings_saved", "upgraded", "api_key_check", "check", "extensions"]
+ReportEvent = Literal["installed", "settings_saved", "upgraded", "api_key_check", "check", "extensions", "languages"]
 
 Extension = Mapping[str, Any]
 """Another plugin, extension, module or theme installed on the site:
@@ -78,6 +81,37 @@ Extension = Mapping[str, Any]
 
 MAX_EXTENSIONS: Final = 500
 """At most this many installed plugins are sent; the rest are left out."""
+
+
+LanguageMapping = Mapping[str, Any]
+"""One language of the system and the Supertext code it is translated as:
+``{"code": "de_CH", "supertext": "de-CH"}`` (``supertext`` None or left out: not mapped)."""
+
+MAX_LANGUAGES: Final = 100
+"""At most this many languages are sent; the rest are left out."""
+
+
+def normalize_languages(languages: Iterable[LanguageMapping]) -> list[dict[str, Any]]:
+    """The language mapping as it is sent.
+
+    Codes trimmed and cut to 35 characters, a blank Supertext code sent as None, blank codes and repeats
+    (same code, ignoring case) dropped, at most :data:`MAX_LANGUAGES`.
+    """
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for entry in languages:
+        if len(out) >= MAX_LANGUAGES:
+            break
+        if not isinstance(entry, Mapping) or not isinstance(entry.get("code"), str):
+            continue
+        code = entry["code"].strip()[:35]
+        if not code or code.lower() in seen:
+            continue
+        seen.add(code.lower())
+        raw = entry.get("supertext")
+        supertext = raw.strip()[:35] if isinstance(raw, str) else ""
+        out.append({"code": code, "supertext": supertext or None})
+    return out
 
 
 def normalize_extensions(extensions: Iterable[Extension]) -> list[dict[str, Any]]:
@@ -301,6 +335,7 @@ class InstallationReporter:
         transport: Transport | None = None,
         now: Callable[[], float] = time.time,
         extensions: Callable[[], Iterable[Extension]] | None = None,
+        languages: Callable[[], Iterable[LanguageMapping]] | None = None,
     ) -> None:
         self._enabled = enabled
         self.site_url = site_url
@@ -314,6 +349,7 @@ class InstallationReporter:
         self._transport: Transport = transport or UrllibTransport()
         self._now = now
         self._extensions = extensions
+        self._languages = languages
 
     def __repr__(self) -> str:
         return f"InstallationReporter(plugin={self.plugin.name!r}, report_url={self.report_url!r})"
@@ -385,12 +421,28 @@ class InstallationReporter:
             listed = []
         return self._send(reporter_state(state), "extensions", listed)
 
+    def send_languages(self, state: StateInput, languages: Iterable[LanguageMapping]) -> ReporterResult:
+        """The plugin's "Send language settings to Supertext" button: sends event ``languages`` with the mapping.
+
+        Now, even after a recent failure, but only while reporting is on (``sent`` is False otherwise).
+        """
+        try:
+            mapping = normalize_languages(languages)
+        except Exception:
+            mapping = []
+        return self._send(reporter_state(state), "languages", None, mapping)
+
     def build_report(
-        self, event: ReportEvent, state: StateInput, extensions: list[dict[str, Any]] | None = None
+        self,
+        event: ReportEvent,
+        state: StateInput,
+        extensions: list[dict[str, Any]] | None = None,
+        languages: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """The report body for an event and state (neither the key nor its fingerprint is part of it).
 
-        ``extensions``: the installed plugins to send; default: the ``extensions`` function's, if any.
+        ``extensions``, ``languages``: the installed plugins and the language mapping to send; default: the
+        ``extensions`` and ``languages`` functions', if any.
         """
         current = reporter_state(state)
         body: dict[str, Any] = {
@@ -416,7 +468,18 @@ class InstallationReporter:
         listed = extensions if extensions is not None else self._configured_extensions()
         if listed is not None:
             body["extensions"] = listed
+        mapping = languages if languages is not None else self._configured_languages()
+        if mapping is not None:
+            body["languages"] = mapping
         return body
+
+    def _configured_languages(self) -> list[dict[str, Any]] | None:
+        if self._languages is None:
+            return None
+        try:
+            return normalize_languages(self._languages())
+        except Exception:
+            return None  # never fails the report: the mapping is extra information
 
     def _configured_extensions(self) -> list[dict[str, Any]] | None:
         if self._extensions is None:
@@ -499,13 +562,18 @@ class InstallationReporter:
         return self._send(state, event)
 
     def _send(
-        self, state: ReporterState, event: ReportEvent, extensions: list[dict[str, Any]] | None = None
+        self,
+        state: ReporterState,
+        event: ReportEvent,
+        extensions: list[dict[str, Any]] | None = None,
+        languages: list[dict[str, Any]] | None = None,
     ) -> ReporterResult:
         if not self._enabled:
             return ReporterResult(state, state.key_check, None, False, state.key_checks)
         ok = False
         try:
-            body = json.dumps(self.build_report(event, state, extensions), separators=(",", ":")).encode("utf-8")
+            report = self.build_report(event, state, extensions, languages)
+            body = json.dumps(report, separators=(",", ":")).encode("utf-8")
             headers = {
                 "Content-Type": "application/json",
                 "Accept": "application/json",
