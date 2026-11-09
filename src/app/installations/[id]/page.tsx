@@ -5,7 +5,7 @@ import { getInstallation, installationHistory, listClients, pingHistory, type In
 import { latestRelease, repoUrl } from '@/lib/releases';
 import { extensionChanges, sortExtensions } from '@/lib/extensions';
 import { languageChanges, sortLanguages } from '@/lib/languages';
-import { CallbackStatus, EVENT_LABEL, KeyStatus, NameVersion, PluginVersion, ago, formatDate, keyStatusWord } from '@/components/ui';
+import { CallbackStatus, EVENT_LABEL, KeyStatus, NameVersion, PluginVersion, ago, formatDate, keyStatusWord, TestBadge } from '@/components/ui';
 import ConfirmButton from '@/components/confirm-button';
 import { pingNow, removeInstallation, saveInstallation } from '../../actions';
 
@@ -96,7 +96,7 @@ export default async function InstallationPage({
       </p>
       <h1 className="row">
         {i.site_url}
-        {i.local && <span className="badge local">local</span>}
+        <TestBadge local={i.local} test_override={i.test_override} />
       </h1>
       <p className="sub">
         <a className="link" href={i.site_url} target="_blank" rel="noopener noreferrer">
@@ -205,6 +205,15 @@ export default async function InstallationPage({
             <label>
               Notes
               <textarea name="notes" defaultValue={i.notes} maxLength={5000} placeholder="Contact, staging or production, …" />
+            </label>
+            <label>
+              Test installation
+              <select name="test" defaultValue={i.test_override === null ? 'auto' : i.test_override ? 'test' : 'real'}>
+                <option value="auto">Automatic: {i.local ? 'test (local or test host)' : 'real'}</option>
+                <option value="test">Test installation</option>
+                <option value="real">Real installation</option>
+              </select>
+              <span className="muted small" style={{ fontWeight: 400 }}>Test installations are hidden in the list and left out of the statistics.</span>
             </label>
             <div className="row">
               <button type="submit" className="primary">

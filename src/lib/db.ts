@@ -17,7 +17,10 @@ export interface Installation {
   id: number;
   site_url: string;
   plugin: string;
+  /** The host is local or a test host (localhost, *.test, private IP, …), from the site URL. */
   local: boolean;
+  /** Set by staff: true = test installation, false = real installation; null = automatic (local). */
+  test_override: boolean | null;
   client_id: number | null;
   client_name: string | null;
   notes: string;
@@ -243,7 +246,7 @@ export async function listInstallations(f: InstallationFilter = {}, sql: Sql = d
     SELECT i.*, c.name AS client_name
     FROM installations i LEFT JOIN clients c ON c.id = i.client_id
     WHERE true
-      ${f.includeLocal ? sql`` : sql`AND NOT i.local`}
+      ${f.includeLocal ? sql`` : sql`AND NOT COALESCE(i.test_override, i.local)`}
       ${f.plugin ? sql`AND i.plugin = ${f.plugin}` : sql``}
       ${f.clientId === 'none' ? sql`AND i.client_id IS NULL` : f.clientId ? sql`AND i.client_id = ${f.clientId}` : sql``}
       ${
@@ -293,8 +296,19 @@ export async function installationHistory(id: number, limit = 200, sql: Sql = db
     FROM reports WHERE installation_id = ${id} ORDER BY received_at DESC, id DESC LIMIT ${limit}`;
 }
 
-export async function updateInstallation(id: number, clientId: number | null, notes: string, sql: Sql = db()): Promise<void> {
-  await sql`UPDATE installations SET client_id = ${clientId}, notes = ${notes} WHERE id = ${id}`;
+export async function updateInstallation(
+  id: number,
+  clientId: number | null,
+  notes: string,
+  testOverride: boolean | null = null,
+  sql: Sql = db(),
+): Promise<void> {
+  await sql`UPDATE installations SET client_id = ${clientId}, notes = ${notes}, test_override = ${testOverride} WHERE id = ${id}`;
+}
+
+/** Whether an installation counts as a test installation: staff's choice, else whether its host is local. */
+export function isTestInstallation(i: Pick<Installation, 'local' | 'test_override'>): boolean {
+  return i.test_override ?? i.local;
 }
 
 export async function deleteInstallation(id: number, sql: Sql = db()): Promise<void> {

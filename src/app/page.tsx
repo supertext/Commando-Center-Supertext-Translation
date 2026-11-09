@@ -3,7 +3,7 @@ import { requireAuth } from '@/lib/session';
 import { listClients, listInstallations, listPlugins } from '@/lib/db';
 import { latestReleases, repoUrl } from '@/lib/releases';
 import { versionStatus } from '@/lib/semver';
-import { CallbackStatus, EVENT_LABEL, KeyStatus, NameVersion, PluginVersion, ago, formatDate } from '@/components/ui';
+import { CallbackStatus, EVENT_LABEL, KeyStatus, NameVersion, PluginVersion, ago, formatDate, TestBadge } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -98,7 +98,7 @@ export default async function InstallationsPage({ searchParams }: { searchParams
           <option value="none">No endpoint</option>
         </select>
         <label className="check">
-          <input type="checkbox" name="local" value="1" defaultChecked={includeLocal} /> Show local and test hosts
+          <input type="checkbox" name="local" value="1" defaultChecked={includeLocal} /> Show test installations
         </label>
         <button type="submit">Filter</button>
         {(q || plugin || client || status || key || callback || includeLocal) && (
@@ -136,7 +136,7 @@ export default async function InstallationsPage({ searchParams }: { searchParams
                     <Link className="link" href={`/installations/${i.id}`}>
                       {i.site_url.replace(/^https?:\/\//, '')}
                     </Link>{' '}
-                    {i.local && <span className="badge local">local</span>}
+                    <TestBadge local={i.local} test_override={i.test_override} />
                   </td>
                   <td>
                     {i.client_id ? (

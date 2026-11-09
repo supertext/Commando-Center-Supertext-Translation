@@ -207,6 +207,34 @@ describe('report endpoint and store', () => {
     });
   });
 
+  describe('test installations', () => {
+    const ip = { 'x-forwarded-for': '198.51.100.33' };
+
+    it('staff can mark a site as test or as real, overriding the automatic filter', async () => {
+      await post({ ...base, site_url: 'https://staging.override.example.ch', event: 'installed' }, ip);
+      await post({ ...base, site_url: 'http://override.ddev.site', event: 'installed' }, ip);
+      const [staging] = await store.listInstallations({ q: 'staging.override' });
+      const [ddev] = await store.listInstallations({ q: 'override.ddev.site', includeLocal: true });
+      expect(store.isTestInstallation(staging)).toBe(false);
+      expect(store.isTestInstallation(ddev)).toBe(true);
+      expect(await store.listInstallations({ q: 'override.ddev.site' })).toEqual([]);
+
+      await store.updateInstallation(staging.id, null, '', true);
+      await store.updateInstallation(ddev.id, null, 'Shared demo', false);
+      expect(await store.listInstallations({ q: 'staging.override' })).toEqual([]);
+      expect((await store.listInstallations({ q: 'staging.override', includeLocal: true }))[0]).toMatchObject({ test_override: true });
+      expect((await store.listInstallations({ q: 'override.ddev.site' }))[0]).toMatchObject({ local: true, test_override: false, notes: 'Shared demo' });
+
+      // A new report keeps the choice.
+      await post({ ...base, site_url: 'https://staging.override.example.ch', event: 'settings_saved' }, ip);
+      expect((await store.getInstallation(staging.id))?.test_override).toBe(true);
+
+      // Back to automatic.
+      await store.updateInstallation(ddev.id, null, '', null);
+      expect(await store.listInstallations({ q: 'override.ddev.site' })).toEqual([]);
+    });
+  });
+
   describe('language mapping', () => {
     const site = { ...base, site_url: 'https://languages.example.ch', plugin: { name: 'supertext-wordpress-polylang', version: '2.2.0' }, system: { name: 'WordPress' } };
     const ip = { 'x-forwarded-for': '198.51.100.32' };

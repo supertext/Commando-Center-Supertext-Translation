@@ -116,7 +116,7 @@ The installation keeps the **newest** key check: a report without one (an `upgra
 
 The body is `{"ok": true}` or `{"ok": false, "error": "…"}`. Plugins ignore any other fields: later versions may return, for example, remote checks to run.
 
-The site URL identifies the installation. The dashboard lower-cases scheme and host, converts international domains to punycode, drops default ports, user info, query, fragment and trailing slashes, and keeps a sub-path (`https://example.com/de/shop`). Local and test hosts (`localhost`, private IPs, `*.test`, `*.local`, `*.localhost`, `*.ddev.site`, single-label names, …) are flagged and hidden by default. Same URL with two different plugins = two installations.
+The site URL identifies the installation. The dashboard lower-cases scheme and host, converts international domains to punycode, drops default ports, user info, query, fragment and trailing slashes, and keeps a sub-path (`https://example.com/de/shop`). Local and test hosts (`localhost`, private IPs, `*.test`, `*.local`, `*.localhost`, `*.ddev.site`, single-label names, …) are flagged (`installations.local`). Staff can override that per installation (`installations.test_override`: `true` test, `false` real, `NULL` automatic, migration 007); a test installation is `COALESCE(test_override, local)` (`isTestInstallation()`), hidden by default in the list and left out of the statistics API. The ping still goes by `local` only. Same URL with two different plugins = two installations.
 
 ### When a plugin reports
 
@@ -257,7 +257,7 @@ The *Translation proxy* tab shows which plugins send their translations through 
 - **Off** until `COMMANDO_STATS_TOKEN` is set in Railway (at least 32 characters, `openssl rand -base64 48`); then `404`.
 - **One shared token**, sent as `Authorization: Bearer <token>` (never in the URL, where it would land in logs). Compared in constant time (SHA-256 of both sides). Missing or wrong: `401` with `WWW-Authenticate: Bearer`. To revoke or rotate it, change the variable (Railway redeploys); everyone using it needs the new one.
 - **Limits:** 60 requests per minute per address, and 10 wrong tokens per minute per address (then `429`). Answers carry `Cache-Control: no-store`.
-- **Parameters:** `?local=1` includes local and test installations (localhost, `*.test`, …), like the dashboard's filter. Without it they're left out.
+- **Parameters:** `?local=1` includes test installations (local and test hosts, and those staff marked as test), like the dashboard's *Show test installations*. Without it they're left out; installations staff marked as real are always counted.
 
 ```bash
 curl -H "Authorization: Bearer $COMMANDO_STATS_TOKEN" https://pluginhealth.supertext.com/api/v1/stats

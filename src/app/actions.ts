@@ -49,7 +49,9 @@ export async function saveInstallation(form: FormData): Promise<void> {
   let clientId: number | null = null;
   if (newName) clientId = await store.ensureClient(newName);
   else if (choice && choice !== 'none') clientId = id(form, 'client');
-  await store.updateInstallation(installationId, clientId, clean(form.get('notes'), 5000));
+  const test = String(form.get('test') ?? 'auto');
+  const testOverride = test === 'test' ? true : test === 'real' ? false : null;
+  await store.updateInstallation(installationId, clientId, clean(form.get('notes'), 5000), testOverride);
   revalidatePath('/', 'layout');
   redirect(`/installations/${installationId}?saved=1`);
 }

@@ -73,7 +73,7 @@ Search by URL, client, system, notes the name of an installed plugin (*WPML* fin
 
 ![Installations filtered to Not reachable: a site that couldn't be reached, a wrong answer from a maintenance page and a staging site behind a login](images/installations-not-reachable.png)
 
-Local and test sites (`localhost`, `*.test`, `*.ddev.site`, private IP addresses, …) are hidden; tick *Show local and test hosts* to see them, for example a developer's installation.
+Test installations are hidden and marked *test*; tick *Show test installations* to see them. A site counts as a test installation automatically when its address is local or a test address (`localhost`, `*.test`, `*.ddev.site`, private IP addresses, …), or when someone marked it as one (see below).
 
 ## One installation
 
@@ -103,6 +103,16 @@ Plugins only send their URL, so the dashboard doesn't know whose site it is. On 
 - type a name under *Or a new client* to create one,
 
 add notes if useful (production or staging, contact person) and click **Save**. Map staging and production sites to the same client.
+
+### Test installations
+
+Staging sites, our own demos and developers' sites on real addresses (`staging.kunde.ch`, `*.up.railway.app`) look like real installations. Under **Client and notes**, *Test installation* decides:
+
+- **Automatic** (the default): a test installation only when the address is local or a test address; the option says which applies.
+- **Test installation**: hidden in the list (unless *Show test installations* is ticked) and left out of the statistics, whatever the address.
+- **Real installation**: always shown and counted, even with a test address (for example a shared demo on `*.ddev.site`).
+
+Click **Save**. The choice stays when the site reports again. The dashboard still never pings local and test addresses.
 
 ## Clients
 

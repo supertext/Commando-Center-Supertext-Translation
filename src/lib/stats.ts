@@ -51,7 +51,7 @@ export async function loadStatsRows(includeLocal: boolean, sql: Sql = db()): Pro
     SELECT plugin, plugin_version, system, system_version, runtime, runtime_version, sdk_version,
            api_key_status, callback_status, client_id, first_seen, last_seen, extensions, languages
     FROM installations
-    ${includeLocal ? sql`` : sql`WHERE NOT local`}`;
+    ${includeLocal ? sql`` : sql`WHERE NOT COALESCE(test_override, local)`}`;
 }
 
 export interface Count {

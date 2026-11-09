@@ -16,7 +16,7 @@ function json(status: number, body: unknown, headers: Record<string, string> = {
 /**
  * GET /api/v1/stats — totals per plugin (installations, versions, CMS versions, runtimes, key status).
  * Needs `Authorization: Bearer <COMMANDO_STATS_TOKEN>`; off while that variable isn't set.
- * `?local=1` includes local and test installations. No site URLs, clients or notes.
+ * `?local=1` includes test installations (local and test hosts, and those staff marked as test). No site URLs, clients or notes.
  */
 export async function GET(req: Request) {
   const ip = clientIp(req.headers);

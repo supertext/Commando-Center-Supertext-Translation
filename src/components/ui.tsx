@@ -80,6 +80,19 @@ const KEY_LABEL: Record<string, { label: string; cls: string; hint: string }> = 
 };
 
 /** Result of the plugin's latest automatic API key check. */
+/**
+ * "test" when the installation counts as a test installation (marked by staff, or a local or test host while
+ * nobody chose), nothing for a real one.
+ */
+export function TestBadge({ local, test_override }: { local: boolean; test_override: boolean | null }) {
+  if (!(test_override ?? local)) return null;
+  return (
+    <span className="badge local" title={test_override ? 'Marked as a test installation' : 'Local or test host (automatic)'}>
+      test
+    </span>
+  );
+}
+
 export function KeyStatus({
   status,
   checkedAt,
