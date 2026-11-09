@@ -31,6 +31,7 @@ const row = (o: Partial<StatsRow>): StatsRow => ({
   callback_status: 'reachable',
   client_id: null,
   last_seen: now,
+  extensions: null,
   ...o,
 });
 
@@ -66,8 +67,38 @@ describe('computeStats', () => {
   });
 
   it('sums the totals and identifies no site or client', () => {
-    expect(s.totals).toEqual({ installations: 4, active: 3, up_to_date: 2, outdated: 1, api_key_problem: 1, unreachable: 1, with_client: 1, plugins: 2 });
+    expect(s.totals).toMatchObject({ installations: 4, active: 3, up_to_date: 2, outdated: 1, api_key_problem: 1, unreachable: 1, with_client: 1, plugins: 2 });
+    expect(s.totals.extensions).toEqual({ reported: 0, installed: null, active: null, by_type: [] });
     expect(s).toMatchObject({ generated_at: now.toISOString(), active_days: 30, include_local: false });
     expect(JSON.stringify(s)).not.toMatch(/site_url|client_id|client_name|notes/);
+  });
+});
+
+describe('installed plugins (counts only)', () => {
+  const ext = (n: number, active: boolean | null, type: string | null = 'plugin') =>
+    Array.from({ length: n }, (_, i) => ({ name: `secret-plugin-${type}-${i}`, version: '1.0.0', active: i === 0 ? active : (active === null ? null : !active), type }));
+  const rows: StatsRow[] = [
+    { ...row({ plugin: 'WP' }), extensions: [...ext(10, true), ...ext(2, true, 'theme')] },
+    { ...row({ plugin: 'WP' }), extensions: ext(4, null) },
+    { ...row({ plugin: 'WP' }), extensions: [] },
+    { ...row({ plugin: 'WP' }), extensions: null },
+  ];
+  const s = computeStats(rows, new Map(), false, now);
+  const e = s.plugins[0].extensions;
+
+  it('summarises how many each site has installed and active', () => {
+    expect(e.reported).toBe(3);
+    expect(e.installed).toEqual({ min: 0, median: 4, mean: 5.3, max: 12 });
+    // Active counts only lists that say which are active: here only the first (1 plugin + 1 theme active).
+    expect(e.active).toEqual({ min: 2, median: 2, mean: 2, max: 2 });
+    expect(e.by_type).toEqual([
+      { type: 'plugin', installations: 2, installed: { min: 4, median: 7, mean: 7, max: 10 } },
+      { type: 'theme', installations: 1, installed: { min: 2, median: 2, mean: 2, max: 2 } },
+    ]);
+    expect(s.totals.extensions).toEqual(e);
+  });
+
+  it('never returns the names of installed plugins', () => {
+    expect(JSON.stringify(s)).not.toContain('secret-plugin');
   });
 });

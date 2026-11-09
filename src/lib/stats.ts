@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { db } from './db';
+import type { Extension } from './report';
 import { versionStatus } from './semver';
 
 /**
@@ -39,12 +40,14 @@ export interface StatsRow {
   callback_status: string | null;
   client_id: number | null;
   last_seen: Date | string;
+  /** Only the counts are used: names never leave this module. */
+  extensions: Extension[] | null;
 }
 
 export async function loadStatsRows(includeLocal: boolean, sql: Sql = db()): Promise<StatsRow[]> {
   return sql<StatsRow[]>`
     SELECT plugin, plugin_version, system, system_version, runtime, runtime_version, sdk_version,
-           api_key_status, callback_status, client_id, last_seen
+           api_key_status, callback_status, client_id, last_seen, extensions
     FROM installations
     ${includeLocal ? sql`` : sql`WHERE NOT local`}`;
 }
@@ -64,6 +67,24 @@ export interface Totals {
   with_client: number;
 }
 
+/** Distribution of a number over the installations that sent their list. */
+export interface Summary {
+  min: number;
+  median: number;
+  mean: number;
+  max: number;
+}
+
+/** How many other plugins (themes, modules, …) the sites have installed: counts only, never names. */
+export interface ExtensionStats {
+  /** Installations that sent their list of installed plugins. */
+  reported: number;
+  installed: Summary | null;
+  active: Summary | null;
+  /** Per type (plugin, theme, mu-plugin, …): installations listing at least one, and how many each lists. */
+  by_type: Array<{ type: string | null; installations: number; installed: Summary }>;
+}
+
 export interface PluginStats extends Totals {
   plugin: string;
   latest_release: string | null;
@@ -72,13 +93,14 @@ export interface PluginStats extends Totals {
   runtimes: Count[];
   sdk_versions: Count[];
   api_key_status: Count[];
+  extensions: ExtensionStats;
 }
 
 export interface Stats {
   generated_at: string;
   active_days: number;
   include_local: boolean;
-  totals: Totals & { plugins: number };
+  totals: Totals & { plugins: number; extensions: ExtensionStats };
   plugins: PluginStats[];
 }
 
@@ -88,6 +110,34 @@ function counts(values: (string | null)[]): Count[] {
   return [...m]
     .map(([value, installations]) => ({ value, installations }))
     .sort((a, b) => b.installations - a.installations || String(a.value ?? '').localeCompare(String(b.value ?? ''), 'en', { numeric: true }));
+}
+
+function summary(values: number[]): Summary | null {
+  if (values.length === 0) return null;
+  const v = [...values].sort((a, b) => a - b);
+  const mid = v.length >> 1;
+  const median = v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+  const mean = v.reduce((a, b) => a + b, 0) / v.length;
+  return { min: v[0], median, mean: Math.round(mean * 10) / 10, max: v[v.length - 1] };
+}
+
+export function extensionStats(rows: StatsRow[]): ExtensionStats {
+  const lists = rows.map((r) => r.extensions).filter((l): l is Extension[] => Array.isArray(l));
+  const types = new Map<string | null, number[]>();
+  for (const l of lists) {
+    const perType = new Map<string | null, number>();
+    for (const e of l) perType.set(e.type ?? null, (perType.get(e.type ?? null) ?? 0) + 1);
+    for (const [t, n] of perType) types.set(t, [...(types.get(t) ?? []), n]);
+  }
+  return {
+    reported: lists.length,
+    installed: summary(lists.map((l) => l.length)),
+    // Active: only entries the system marks as active; lists that never say count as unknown.
+    active: summary(lists.filter((l) => l.some((e) => e.active !== null)).map((l) => l.filter((e) => e.active === true).length)),
+    by_type: [...types]
+      .map(([type, n]) => ({ type, installations: n.length, installed: summary(n)! }))
+      .sort((a, b) => b.installations - a.installations || String(a.type ?? '').localeCompare(String(b.type ?? ''))),
+  };
 }
 
 function join(name: string | null, version: string | null): string | null {
@@ -125,6 +175,7 @@ export function computeStats(rows: StatsRow[], latest: Map<string, string | null
         runtimes: counts(list.map((r) => join(r.runtime, r.runtime_version))),
         sdk_versions: counts(list.map((r) => r.sdk_version)),
         api_key_status: counts(list.map((r) => r.api_key_status)),
+        extensions: extensionStats(list),
       };
     })
     .sort((a, b) => b.installations - a.installations || a.plugin.localeCompare(b.plugin));
@@ -141,7 +192,7 @@ export function computeStats(rows: StatsRow[], latest: Map<string, string | null
     generated_at: now.toISOString(),
     active_days: ACTIVE_DAYS,
     include_local: includeLocal,
-    totals: { ...all, plugins: plugins.length },
+    totals: { ...all, plugins: plugins.length, extensions: extensionStats(rows) },
     plugins,
   };
 }

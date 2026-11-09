@@ -224,7 +224,7 @@ The *Translation proxy* tab shows which plugins send their translations through 
 
 ## Statistics API
 
-`GET /api/v1/stats` gives the totals the dashboard shows, per plugin, for reports, spreadsheets or other tools. Totals only: no site URLs, client names, notes, IP addresses or installed plugins.
+`GET /api/v1/stats` gives the totals the dashboard shows, per plugin, for reports, spreadsheets or other tools. Totals only: no site URLs, client names, notes or IP addresses, and of the other plugins installed on the sites only how many, never their names.
 
 - **Off** until `COMMANDO_STATS_TOKEN` is set in Railway (at least 32 characters, `openssl rand -base64 48`); then `404`.
 - **One shared token**, sent as `Authorization: Bearer <token>` (never in the URL, where it would land in logs). Compared in constant time (SHA-256 of both sides). Missing or wrong: `401` with `WWW-Authenticate: Bearer`. To revoke or rotate it, change the variable (Railway redeploys); everyone using it needs the new one.
@@ -241,7 +241,7 @@ curl -H "Authorization: Bearer $COMMANDO_STATS_TOKEN" https://pluginhealth.super
   "generated_at": "2026-11-09T12:00:00.000Z",
   "active_days": 30,
   "include_local": false,
-  "totals": { "installations": 42, "active": 37, "up_to_date": 30, "outdated": 9, "api_key_problem": 2, "unreachable": 3, "with_client": 25, "plugins": 12 },
+  "totals": { "installations": 42, "active": 37, "up_to_date": 30, "outdated": 9, "api_key_problem": 2, "unreachable": 3, "with_client": 25, "plugins": 12, "extensions": { "...": "as per plugin" } },
   "plugins": [
     {
       "plugin": "Strapi-Supertext-Translation",
@@ -251,7 +251,13 @@ curl -H "Authorization: Bearer $COMMANDO_STATS_TOKEN" https://pluginhealth.super
       "system_versions": [{ "value": "Strapi 5.20.0", "installations": 2 }, { "value": "Strapi 5.21.0", "installations": 1 }],
       "runtimes": [{ "value": "Node.js 22.11.0", "installations": 3 }],
       "sdk_versions": [{ "value": "0.9.0", "installations": 3 }],
-      "api_key_status": [{ "value": "ok", "installations": 2 }, { "value": "invalid", "installations": 1 }]
+      "api_key_status": [{ "value": "ok", "installations": 2 }, { "value": "invalid", "installations": 1 }],
+      "extensions": {
+        "reported": 2,
+        "installed": { "min": 12, "median": 18, "mean": 18, "max": 24 },
+        "active": { "min": 9, "median": 13.5, "mean": 13.5, "max": 18 },
+        "by_type": [{ "type": "plugin", "installations": 2, "installed": { "min": 10, "median": 15, "mean": 15, "max": 20 } }]
+      }
     }
   ]
 }
@@ -266,6 +272,7 @@ curl -H "Authorization: Bearer $COMMANDO_STATS_TOKEN" https://pluginhealth.super
 | `unreachable` | Latest callback ping not `reachable` |
 | `with_client` | Mapped to a client in the dashboard |
 | `versions`, `system_versions`, `runtimes`, `sdk_versions`, `api_key_status` | Installations per value, most first; `null` = not reported (or the key not checked yet) |
+| `extensions` | How many other plugins the sites have installed (see *Installed plugins*): `reported` = installations that sent their list; `installed` and `active` = min, median, mean (one decimal) and max per site, `null` while no list was sent (`active` only over lists that say which are active); `by_type` = per type (`plugin`, `theme`, `mu-plugin`, …, `null` = not given) the installations listing at least one and how many each lists. Counts only, never names |
 
 Plugins are sorted by installations. New fields may be added; clients should ignore what they don't know.
 
