@@ -14,6 +14,10 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 - **Installed plugins:** plugins can send the list of the other plugins installed on the site (name, version, active, type), by default only when an administrator presses *Send installed plugins to Supertext* in the plugin's settings (new event `extensions`, field `extensions`, Plugin Health 0.3.0). The installation page shows the list, the history what changed (added, removed, updated, activated, deactivated), and the search finds sites by plugin name. Reports may now be up to 64 KB. New columns `extensions`, `extensions_at` (migration 005).
 - Plugin Health library 0.2.0: the default report address `https://pluginhealth.supertext.com/api/v1/report` comes from `plugin-health/config.json`, and plugins can pass several named keys (see `plugin-health/CHANGELOG.md`).
 
+### Fixed
+
+- The WPML plugin (`supertext-wordpress-wpml`) showed *no release*: its releases are now read from its repository, `Wordpress-WPML-Supertext-Translation`.
+
 ### Changed
 
 - The latest release of each plugin is looked up on GitHub once a day instead of once an hour (a redeploy clears the cache).
