@@ -1,12 +1,12 @@
 # Supertext Plugin Health
 
-The plugin side of the [Supertext Commando Center](../README.md): every Supertext plugin uses it to
+The plugin side of the [Supertext Plugin Health dashboard](../README.md): every Supertext plugin uses it to
 
 - **report its versions** (plugin, CMS/shop/PIM, runtime, bundled SDK) when its settings are saved and after an update,
 - **report the result of its API key check** (the check itself is the Supertext SDK's `checkApiKey()`),
-- **answer the center's reachability ping** on a public endpoint.
+- **answer the dashboard's reachability ping** on a public endpoint.
 
-It lives next to the center because the protocol, the server and the client change together. It has no runtime dependencies and doesn't need the Supertext SDK: the plugin passes the SDK's key check in.
+It lives next to the dashboard because the protocol, the server and the client change together. It has no runtime dependencies and doesn't need the Supertext SDK: the plugin passes the SDK's key check in.
 
 | Language | Folder | Package / namespace | Needs |
 | --- | --- | --- | --- |
@@ -16,7 +16,7 @@ It lives next to the center because the protocol, the server and the client chan
 | .NET | [`dotnet/`](dotnet/) | `Supertext.PluginHealth` | .NET 8 |
 | Java | [`java/`](java/) | `com.supertext.pluginhealth` (`com.supertext:supertext-plugin-health`) | Java 17+ |
 
-All five share one version (`CHANGELOG.md` here) and pass the same vectors: [`spec/reporter.json`](spec/reporter.json) plus the center's [`spec/`](../spec/) (report schema and examples, ping cases). The protocol is in the center's [developer guide → Report protocol](../docs/DEVELOPER.md#report-protocol).
+All five share one version (`CHANGELOG.md` here) and pass the same vectors: [`spec/reporter.json`](spec/reporter.json) plus the dashboard's [`spec/`](../spec/) (report schema and examples, ping cases). The protocol is in the dashboard's [developer guide → Report protocol](../docs/DEVELOPER.md#report-protocol).
 
 ## What a plugin does
 
@@ -46,21 +46,49 @@ store((await reporter.onRequest(reporterState(stored), apiKey)).state)
 // The "Test connection" button:     reporter.testConnection(state, apiKey)
 // A check command:                  reporter.reportCheck(state)
 
+// Several Supertext API keys (e.g. AI translation and professional orders): pass them by name, in the order
+// the settings show them, instead of one key. Each is checked and reported in api_keys.
+const keys = { 'AI translation': aiKey, 'Professional orders': ordersKey }
+store((await reporter.afterSettingsSaved(reporterState(stored), keys)).state)
+// A translation with the orders key got 401/403:
+// reporter.authenticationFailed(state, keys, 401, 'Professional orders')
+
+// The "Send installed plugins to Supertext" button on the settings page (only by hand, the default):
+const sent = await reporter.sendExtensions(reporterState(stored), [
+  { name: 'Polylang Pro', version: '3.7.2', active: true, type: 'plugin' },
+  { name: 'Twenty Twenty-Five', version: '1.2', active: true, type: 'theme' },
+])
+store(sent.state) // sent.sent false: reporting is off or the center couldn't be reached
+
+// The language mapping alone (plugins without the installed-plugins list): each CMS language and its Supertext code.
+// With both, one button: a reporter with `languages: () => mapping` and sendExtensions, so one report carries both.
+const langs = await reporter.sendLanguages(reporterState(stored), [
+  { code: 'de_CH', supertext: 'de-CH' },
+  { code: 'en_IE', supertext: null }, // not mapped
+])
+store(langs.state)
+
 // The public ping endpoint (GET, no login, not cached):
 const p = pingResponse(query.challenge, { plugin: 'Directus-Supertext-Translation', enabled: reporter.enabled })
 // → answer with p.status, p.headers and p.body as they are
 ```
 
-- `InstallationReporter` methods: `afterSettingsSaved`, `onRequest`, `authenticationFailed`, `testConnection`, `reportCheck`, `buildReport`, plus `enabled` and `versions`. They never throw and never take longer than the report timeout (3 s) plus the key check.
-- `ReporterState` is a small JSON object (`reportedVersions`, `reportedKeyStatus`, `lastFailureAt`, `keyCheck`) the plugin stores as it is. It is the same state the Supertext SDK 0.1–0.2 reporter stored, so a plugin that switches keeps its history: no new `installed` report.
+- `InstallationReporter` methods: `afterSettingsSaved`, `onRequest`, `authenticationFailed`, `testConnection`, `reportCheck`, `sendExtensions`, `sendLanguages`, `buildReport`, plus `enabled` and `versions`. They never throw and never take longer than the report timeout (3 s) plus the key check.
+- `ReporterState` is a small JSON object (`reportedVersions`, `reportedKeyStatus`, `lastFailureAt`, `keyCheck`, and for several keys `keyChecks` and `reportedKeyStatuses`, by name) the plugin stores as it is. The first four are the state the Supertext SDK 0.1–0.2 reporter stored, so a plugin that switches keeps its history: no new `installed` report.
+- **Several keys** (0.2.0): every action takes either one key (a string; reported as `api_key_configured` and `api_key_check`) or several by name (at most 20; reported as `api_keys`, see the dashboard's *Report protocol*): TypeScript and Python an object/mapping, PHP an array, .NET `IEnumerable<KeyValuePair<string, string>>` (e.g. a `Dictionary`), Java a `Map` (use a `LinkedHashMap` to keep the order). Changed keys are checked on the next request; an `api_key_check` report goes out when any key's status changes; `authenticationFailed` takes the name of the key that was rejected. The result's `checks` (`Checks`, `getChecks()`) has each key's check; `check` is null then. Names are what the settings call the keys (60 characters at most), never the keys themselves. In .NET and Java, passing a `null` literal as the key is ambiguous between the two overloads: pass a `string?`/`String` variable.
+- **Installed plugins** (0.3.0): `sendExtensions` sends the other plugins, extensions, modules or themes installed on the site with event `extensions`, for the button on the plugin's settings page (strings in four languages: the dashboard's *Report protocol* → *Installed plugins*). It sends right away, even after a recent failure, but never while reporting is off. Entries: TypeScript `{ name, version?, active?, type? }`, PHP `['name' => …, 'version' => …, 'active' => …, 'type' => …]`, Python a mapping with the same keys, .NET `new Extension(name, version, active, type)`, Java `new Extension(name, version, active, type)`. Include everything installed, active or not (`active` where the system knows it), with `type` in the system's own word (`plugin`, `theme`, `module`, `extension`, …); never settings, licence keys or paths. The list is trimmed and cut (name 100, version 50, type 30 characters), blank names and repeats are dropped, at most 500 (`normalizeExtensions`, `MAX_EXTENSIONS`: count the result for the *Sent: {count} plugins* message). By default nothing is sent automatically; a plugin may pass an `extensions` function in the options (PHP: the constructor's `extensions:`, Java: `Builder.extensions`) so that every report carries the list, where reading it is cheap. A function that throws only leaves the list out.
+- **Language mapping** (0.4.0): `sendLanguages` sends the plugin's language mapping with event `languages`, with the same rules as `sendExtensions`, for plugins that send the mapping without the installed plugins. Plugins with both use one button, *Send configuration to Supertext* (strings in four languages: the dashboard's *Report protocol* → *Language mapping*): give the reporter for that call a `languages` function and call `sendExtensions`, so one report carries both. One entry per language configured in the system, source and target alike: its own `code` (`de_CH`, `en-GB`, …) and the `supertext` code the plugin actually uses for it after its own resolution (mapping, exact match, SDK default), `null` when none applies. Entries: TypeScript `{ code, supertext? }`, PHP `['code' => …, 'supertext' => …]`, Python a mapping with the same keys, .NET `new LanguageMapping(code, supertext)`, Java `new LanguageMapping(code, supertext)`. Codes are trimmed and cut to 35 characters, blank codes and repeats dropped, a blank Supertext code sent as `null`, at most 100 (`normalizeLanguages`, `MAX_LANGUAGES`). A `languages` function in the options (PHP: the constructor's `languages:`, Java: `Builder.languages`) makes every report carry the mapping.
 - `KeyCheck` has the fields of the SDK's `ApiKeyCheck` (`status`, `checkedAt`, `httpStatus`, `errorCode`, `fingerprint`). TypeScript, PHP (`KeyCheck::from()`) and Python (`KeyCheck.from_value()`) accept the SDK's object as it is; .NET and Java convert it in one line (`new KeyCheck(c.Status, c.CheckedAt, c.HttpStatus, c.ErrorCode, c.Fingerprint)`).
 - Key checker per language: TypeScript `{ check, fingerprint }`, PHP `new CallableKeyChecker($check, $fingerprint)`, Python `CallableKeyChecker(check=..., fingerprint=...)`, .NET `KeyChecker.FromDelegates(check, fingerprint)`, Java `KeyChecker.of(check, fingerprint)`. A checker that throws gives an `error` check; it never reaches the plugin.
-- Defaults: report URL `https://commandocenter-production.up.railway.app/api/v1/report` (`SUPERTEXT_REPORT_URL` overrides it), 3 s timeout, no new attempt for an hour after a failed report. Reports are fire-and-forget: a failure never reaches the plugin's user.
+- Defaults: report URL from `config.json` (`https://pluginhealth.supertext.com/api/v1/report`; `SUPERTEXT_REPORT_URL` overrides it), 3 s timeout, no new attempt for an hour after a failed report. Reports are fire-and-forget: a failure never reaches the plugin's user.
+- **`config.json`** (0.2.0): the default report URL is written only in `plugin-health/config.json`. Every language ships a copy next to its sources and reads it: TypeScript imports `src/config.json` (bundled at build time), PHP reads `src/config.json`, Python `config.json` in the package, .NET the embedded resource `config.json` (name ending in `PluginHealth.config.json`), Java the classpath resource `config.json` in the package. `scripts/sync-config.sh` writes the copies, `scripts/sync-config.sh --check` (CI) makes sure they match. Without the file, reports go nowhere unless `SUPERTEXT_REPORT_URL` is set.
 - The API key never leaves the plugin; reports carry only the check's status, time, HTTP status and Supertext's error code.
 
 ## Bundling it in a plugin
 
 Plugins ship a copy, like the Supertext SDK: sites install nothing besides the plugin. Each plugin has `scripts/vendor-plugin-health.sh [commit-or-branch]` (default `main`; `PLUGIN_HEALTH_DIR=/path/to/clone` uses a local clone) that clones this repository, copies `plugin-health/<language>/src` (TypeScript: the built `dist/`) into the plugin, renames the namespace into the plugin's own (PHP, Python, .NET, Java), and writes `LICENSE`, `COMMIT`, `VERSION` and a "bundled copy, don't edit" `README.md` next to it. Never edit a copy: fix it here, then re-run the script.
+
+Since 0.2.0 the copy must include `config.json`: TypeScript and PHP get it with `src/`; Python copies `config.json` with the `.py` files; .NET adds it as an embedded resource in the plugin's project (`<EmbeddedResource Include="…/supertext-plugin-health/src/config.json" LogicalName="Supertext.PluginHealth.config.json" />`); Java copies `src/main/resources/com/supertext/pluginhealth/config.json` into the renamed package's resource folder and adds that folder to the build's resources. A plugin's tests should check that `DEFAULT_REPORT_URL` isn't empty.
 
 ## Working on it
 
@@ -72,6 +100,6 @@ Plugins ship a copy, like the Supertext SDK: sites install nothing besides the p
 | .NET | `dotnet build -warnaserror && dotnet test` |
 | Java | `mvn -B verify` |
 
-CI (`.github/workflows/plugin-health.yml`) runs all five on every change to `plugin-health/` or `spec/`. The center's own tests check that every report the TypeScript reference builds is accepted by the center (`test/unit/plugin-health.test.ts`).
+CI (`.github/workflows/plugin-health.yml`) runs all five on every change to `plugin-health/` or `spec/`. The dashboard's own tests check that every report the TypeScript reference builds is accepted by the dashboard (`test/unit/plugin-health.test.ts`).
 
 A behaviour change starts with `spec/reporter.json`, then all five languages, their tests, this README and `CHANGELOG.md`, in one commit. Releases: a new `## X.Y.Z — YYYY-MM-DD` section in `CHANGELOG.md` with the same version in every language's version file and constant tags `plugin-health-vX.Y.Z` (`.github/workflows/plugin-health-release.yml`).

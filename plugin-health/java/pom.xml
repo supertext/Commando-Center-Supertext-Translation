@@ -6,11 +6,11 @@
 
   <groupId>com.supertext</groupId>
   <artifactId>supertext-plugin-health</artifactId>
-  <version>0.1.0</version>
+  <version>0.4.0</version>
   <packaging>jar</packaging>
 
   <name>Supertext Plugin Health for Java</name>
-  <description>Supertext Plugin Health: version reports, API key check results and the reachability ping of Supertext plugins, for the Supertext Commando Center.</description>
+  <description>Supertext Plugin Health: version reports, API key check results and the reachability ping of Supertext plugins, for the Supertext Plugin Health dashboard.</description>
   <url>https://github.com/Supertext/Commando-Center-Supertext-Translation/tree/main/plugin-health</url>
 
   <licenses>
@@ -68,7 +68,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.6.0</version>
+        <version>3.6.1</version>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

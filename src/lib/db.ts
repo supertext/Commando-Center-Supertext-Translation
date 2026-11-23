@@ -1,6 +1,6 @@
 import postgres from 'postgres';
 import { databaseUrls } from './db-url.mjs';
-import type { Report } from './report';
+import { worstCheck, type ApiKeyCheck, type Extension, type LanguageMapping, type NamedApiKey, type Report } from './report';
 
 type Sql = postgres.Sql;
 
@@ -17,7 +17,10 @@ export interface Installation {
   id: number;
   site_url: string;
   plugin: string;
+  /** The host is local or a test host (localhost, *.test, private IP, …), from the site URL. */
   local: boolean;
+  /** Set by staff: true = test installation, false = real installation; null = automatic (local). */
+  test_override: boolean | null;
   client_id: number | null;
   client_name: string | null;
   notes: string;
@@ -32,6 +35,14 @@ export interface Installation {
   api_key_checked_at: Date | null;
   api_key_http_status: number | null;
   api_key_error_code: string | null;
+  /** Named keys (plugins with several API keys), or null: the single-key columns are all there is. */
+  api_keys: StoredApiKey[] | null;
+  /** The other plugins installed on the site, as last sent; null: never sent. */
+  extensions: Extension[] | null;
+  extensions_at: Date | null;
+  /** The plugin's language mapping, as last sent; null: never sent. */
+  languages: LanguageMapping[] | null;
+  languages_at: Date | null;
   callback_url: string | null;
   callback_status: string | null;
   callback_checked_at: Date | null;
@@ -57,7 +68,69 @@ export interface ReportRow {
   api_key_checked_at: Date | null;
   api_key_http_status: number | null;
   api_key_error_code: string | null;
+  api_keys: StoredApiKey[] | null;
+  /** The installed plugins this report carried; null: none. */
+  extensions: Extension[] | null;
+  /** The language mapping this report carried; null: none. */
+  languages: LanguageMapping[] | null;
   changed: boolean;
+}
+
+/** A named key as stored (JSON in installations.api_keys and reports.api_keys). */
+export interface StoredApiKey {
+  name: string;
+  configured: boolean | null;
+  status: string | null;
+  checked_at: string | null;
+  http_status: number | null;
+  error_code: string | null;
+}
+
+function storeKey(name: string, configured: boolean | null, check: ApiKeyCheck | null): StoredApiKey {
+  return {
+    name,
+    configured,
+    status: check?.status ?? null,
+    checked_at: check?.checkedAt?.toISOString() ?? null,
+    http_status: check?.httpStatus ?? null,
+    error_code: check?.errorCode ?? null,
+  };
+}
+
+function storedCheck(k: StoredApiKey): ApiKeyCheck | null {
+  return k.status ? { status: k.status, checkedAt: k.checked_at ? new Date(k.checked_at) : null, httpStatus: k.http_status, errorCode: k.error_code } : null;
+}
+
+/**
+ * The installation's named keys after a report: the reported list (names and order), each keeping the
+ * newest check (a report without a check for a key, or with an older one, keeps the stored result).
+ */
+export function mergeApiKeys(reported: NamedApiKey[], stored: StoredApiKey[] | null, now: Date): StoredApiKey[] {
+  return reported.map((k) => {
+    const check = k.check ? { ...k.check, checkedAt: k.check.checkedAt ?? now } : null;
+    const old = stored?.find((s) => s.name === k.name);
+    const oldCheck = old ? storedCheck(old) : null;
+    const keep = oldCheck && (!check || (oldCheck.checkedAt && check.checkedAt < oldCheck.checkedAt));
+    return storeKey(k.name, k.configured, keep ? oldCheck : check);
+  });
+}
+
+/** The installed plugins in a stable order, to notice a changed list. */
+export function extensionsKey(list: Extension[] | null): string {
+  return JSON.stringify(
+    (list ?? [])
+      .map((e) => [e.type ?? '', e.name.toLowerCase(), e.version, e.active])
+      .sort((a, b) => (`${a[0]}\u0000${a[1]}` < `${b[0]}\u0000${b[1]}` ? -1 : 1)),
+  );
+}
+
+/** The language mapping in a stable order, to notice a changed list. */
+export function languagesKey(list: LanguageMapping[] | null): string {
+  return JSON.stringify((list ?? []).map((l) => [l.code.toLowerCase(), l.supertext]).sort((a, b) => (a[0]! < b[0]! ? -1 : 1)));
+}
+
+function keyStatuses(keys: StoredApiKey[] | null): string {
+  return JSON.stringify((keys ?? []).map((k) => [k.name, k.configured, k.status]));
 }
 
 export interface Client {
@@ -78,8 +151,17 @@ export async function recordReport(r: Report, sql: Sql = db()): Promise<{ instal
 
     // The installation keeps the newest check: a report without one (older plugin, or an upgrade
     // report) or with an older one leaves the stored result alone.
+    const apiKeys = r.apiKeys ? mergeApiKeys(r.apiKeys, existing?.api_keys ?? null, now) : null;
+    const summary = apiKeys ? worstCheck(apiKeys.map((k) => ({ check: storedCheck(k) }))) : null;
     const newer = check && (!existing?.api_key_checked_at || check.checkedAt >= existing.api_key_checked_at);
-    const key = newer
+    const key = apiKeys
+      ? {
+          status: summary?.status ?? null,
+          checkedAt: summary?.checkedAt ?? null,
+          httpStatus: summary?.httpStatus ?? null,
+          errorCode: summary?.errorCode ?? null,
+        }
+      : newer
       ? { status: check.status, checkedAt: check.checkedAt, httpStatus: check.httpStatus, errorCode: check.errorCode }
       : {
           status: existing?.api_key_status ?? null,
@@ -94,10 +176,12 @@ export async function recordReport(r: Report, sql: Sql = db()): Promise<{ instal
       const [row] = await tx<{ id: number }[]>`
         INSERT INTO installations (site_url, plugin, local, plugin_version, system, system_version, runtime,
           runtime_version, sdk_version, api_key_configured, api_key_status, api_key_checked_at, api_key_http_status,
-          api_key_error_code, callback_url, last_event)
+          api_key_error_code, api_keys, extensions, extensions_at, languages, languages_at, callback_url, last_event)
         VALUES (${r.siteUrl}, ${r.plugin}, ${r.local}, ${r.pluginVersion}, ${r.system}, ${r.systemVersion},
           ${r.runtime}, ${r.runtimeVersion}, ${r.sdkVersion}, ${r.apiKeyConfigured}, ${key.status}, ${key.checkedAt},
-          ${key.httpStatus}, ${key.errorCode}, ${r.callbackUrl}, ${r.event})
+          ${key.httpStatus}, ${key.errorCode}, ${apiKeys ? tx.json(apiKeys as never) : null},
+          ${r.extensions ? tx.json(r.extensions as never) : null}, ${r.extensions ? now : null},
+          ${r.languages ? tx.json(r.languages as never) : null}, ${r.languages ? now : null}, ${r.callbackUrl}, ${r.event})
         ON CONFLICT (site_url, plugin) DO UPDATE SET last_seen = ${now}
         RETURNING id`;
       id = row.id;
@@ -112,13 +196,21 @@ export async function recordReport(r: Report, sql: Sql = db()): Promise<{ instal
         existing.runtime_version !== r.runtimeVersion ||
         existing.sdk_version !== r.sdkVersion ||
         existing.api_key_configured !== r.apiKeyConfigured ||
-        existing.api_key_status !== key.status;
+        existing.api_key_status !== key.status ||
+        keyStatuses(existing.api_keys) !== keyStatuses(apiKeys) ||
+        (r.extensions !== null && (existing.extensions === null || extensionsKey(existing.extensions) !== extensionsKey(r.extensions))) ||
+        (r.languages !== null && (existing.languages === null || languagesKey(existing.languages) !== languagesKey(r.languages)));
       await tx`
         UPDATE installations SET plugin_version = ${r.pluginVersion}, system = ${r.system},
           system_version = ${r.systemVersion}, runtime = ${r.runtime}, runtime_version = ${r.runtimeVersion},
           sdk_version = ${r.sdkVersion}, api_key_configured = ${r.apiKeyConfigured}, local = ${r.local},
           api_key_status = ${key.status}, api_key_checked_at = ${key.checkedAt},
           api_key_http_status = ${key.httpStatus}, api_key_error_code = ${key.errorCode},
+          api_keys = ${apiKeys ? tx.json(apiKeys as never) : null},
+          extensions = ${r.extensions ? tx.json(r.extensions as never) : existing.extensions ? tx.json(existing.extensions as never) : null},
+          extensions_at = ${r.extensions ? now : existing.extensions_at},
+          languages = ${r.languages ? tx.json(r.languages as never) : existing.languages ? tx.json(existing.languages as never) : null},
+          languages_at = ${r.languages ? now : existing.languages_at},
           callback_url = ${r.callbackUrl ?? existing.callback_url},
           last_event = ${r.event}, last_seen = ${now}, report_count = report_count + 1
         WHERE id = ${id}`;
@@ -126,10 +218,13 @@ export async function recordReport(r: Report, sql: Sql = db()): Promise<{ instal
     await tx`
       INSERT INTO reports (installation_id, received_at, event, plugin_version, system_version, runtime_version,
         sdk_version, api_key_configured, api_key_status, api_key_checked_at, api_key_http_status, api_key_error_code,
-        changed)
+        api_keys, extensions, languages, changed)
       VALUES (${id}, ${now}, ${r.event}, ${r.pluginVersion}, ${r.systemVersion}, ${r.runtimeVersion}, ${r.sdkVersion},
         ${r.apiKeyConfigured}, ${check?.status ?? null}, ${check?.checkedAt ?? null}, ${check?.httpStatus ?? null},
-        ${check?.errorCode ?? null}, ${changed})`;
+        ${check?.errorCode ?? null},
+        ${r.apiKeys ? tx.json(r.apiKeys.map((k) => storeKey(k.name, k.configured, k.check ? { ...k.check, checkedAt: k.check.checkedAt ?? now } : null)) as never) : null},
+        ${r.extensions ? tx.json(r.extensions as never) : null},
+        ${r.languages ? tx.json(r.languages as never) : null}, ${changed})`;
     return { installationId: id, created: !existing, changed };
   });
 }
@@ -151,7 +246,7 @@ export async function listInstallations(f: InstallationFilter = {}, sql: Sql = d
     SELECT i.*, c.name AS client_name
     FROM installations i LEFT JOIN clients c ON c.id = i.client_id
     WHERE true
-      ${f.includeLocal ? sql`` : sql`AND NOT i.local`}
+      ${f.includeLocal ? sql`` : sql`AND NOT COALESCE(i.test_override, i.local)`}
       ${f.plugin ? sql`AND i.plugin = ${f.plugin}` : sql``}
       ${f.clientId === 'none' ? sql`AND i.client_id IS NULL` : f.clientId ? sql`AND i.client_id = ${f.clientId}` : sql``}
       ${
@@ -172,7 +267,13 @@ export async function listInstallations(f: InstallationFilter = {}, sql: Sql = d
               ? sql`AND i.callback_status = ${f.callback}`
               : sql``
       }
-      ${like ? sql`AND (i.site_url ILIKE ${like} OR c.name ILIKE ${like} OR i.system ILIKE ${like} OR i.notes ILIKE ${like})` : sql``}
+      ${
+        like
+          ? sql`AND (i.site_url ILIKE ${like} OR c.name ILIKE ${like} OR i.system ILIKE ${like} OR i.notes ILIKE ${like}
+              OR EXISTS (SELECT 1 FROM jsonb_array_elements(i.extensions) e WHERE e->>'name' ILIKE ${like})
+              OR EXISTS (SELECT 1 FROM jsonb_array_elements(i.languages) l WHERE l->>'code' ILIKE ${like} OR l->>'supertext' ILIKE ${like}))`
+          : sql``
+      }
     ORDER BY i.last_seen DESC
     LIMIT 2000`;
 }
@@ -191,12 +292,23 @@ export async function getInstallation(id: number, sql: Sql = db()): Promise<Inst
 export async function installationHistory(id: number, limit = 200, sql: Sql = db()): Promise<ReportRow[]> {
   return sql<ReportRow[]>`
     SELECT id, received_at, event, plugin_version, system_version, runtime_version, sdk_version, api_key_configured,
-      api_key_status, api_key_checked_at, api_key_http_status, api_key_error_code, changed
+      api_key_status, api_key_checked_at, api_key_http_status, api_key_error_code, api_keys, extensions, languages, changed
     FROM reports WHERE installation_id = ${id} ORDER BY received_at DESC, id DESC LIMIT ${limit}`;
 }
 
-export async function updateInstallation(id: number, clientId: number | null, notes: string, sql: Sql = db()): Promise<void> {
-  await sql`UPDATE installations SET client_id = ${clientId}, notes = ${notes} WHERE id = ${id}`;
+export async function updateInstallation(
+  id: number,
+  clientId: number | null,
+  notes: string,
+  testOverride: boolean | null = null,
+  sql: Sql = db(),
+): Promise<void> {
+  await sql`UPDATE installations SET client_id = ${clientId}, notes = ${notes}, test_override = ${testOverride} WHERE id = ${id}`;
+}
+
+/** Whether an installation counts as a test installation: staff's choice, else whether its host is local. */
+export function isTestInstallation(i: Pick<Installation, 'local' | 'test_override'>): boolean {
+  return i.test_override ?? i.local;
 }
 
 export async function deleteInstallation(id: number, sql: Sql = db()): Promise<void> {

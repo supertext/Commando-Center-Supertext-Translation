@@ -14,16 +14,20 @@ const callback = read('../../spec/callback-vectors.json');
 describe('Plugin Health → center', () => {
   for (const scenario of spec.scenarios) {
     it(scenario.name, async () => {
-      const config = { ...spec.config, ...scenario.config };
+      const { extensions: configExtensions, languages: configLanguages, ...config } = { ...spec.config, ...scenario.config };
       let state = reporterState(scenario.state);
       for (const step of scenario.steps) {
         const bodies: Record<string, unknown>[] = [];
-        const keyChecker: KeyChecker = { check: () => step.keyCheck, fingerprint: (k) => spec.fingerprints[k] };
+        const queue = step.keyChecks ? [...step.keyChecks] : null;
+        const keyChecker: KeyChecker = { check: () => (queue ? queue.shift() : step.keyCheck), fingerprint: (k) => spec.fingerprints[k] };
+        const keys = step.apiKeys ?? step.apiKey;
         const reporter = new InstallationReporter({
           ...config,
           keyChecker,
           reportUrl: 'https://center.test/api/v1/report',
           now: () => Date.parse(step.now),
+          ...(configExtensions ? { extensions: () => configExtensions } : {}),
+          ...(configLanguages ? { languages: () => configLanguages } : {}),
           fetch: async (_url, init) => {
             bodies.push(JSON.parse(init.body));
             if (step.report?.transportError) throw new TypeError('fetch failed');
@@ -32,19 +36,35 @@ describe('Plugin Health → center', () => {
         });
         const r =
           step.action === 'afterSettingsSaved'
-            ? await reporter.afterSettingsSaved(state, step.apiKey)
+            ? await reporter.afterSettingsSaved(state, keys)
             : step.action === 'onRequest'
-              ? await reporter.onRequest(state, step.apiKey)
+              ? await reporter.onRequest(state, keys)
               : step.action === 'authenticationFailed'
-                ? await reporter.authenticationFailed(state, step.apiKey, step.httpStatus)
+                ? await reporter.authenticationFailed(state, keys, step.httpStatus, step.keyName)
                 : step.action === 'testConnection'
-                  ? await reporter.testConnection(state, step.apiKey)
-                  : await reporter.reportCheck(state);
+                  ? await reporter.testConnection(state, keys)
+                  : step.action === 'sendExtensions'
+                    ? await reporter.sendExtensions(state, step.extensions)
+                    : step.action === 'sendLanguages'
+                      ? await reporter.sendLanguages(state, step.languages)
+                      : await reporter.reportCheck(state);
         for (const body of bodies) {
           const parsed = parseReport(body, Date.parse(step.now));
           expect(parsed.ok, JSON.stringify(body)).toBe(true);
           if (parsed.ok && body.api_key_check) expect(parsed.report.apiKeyCheck?.status).toBe((body.api_key_check as { status: string }).status);
           if (parsed.ok && config.callbackUrl) expect(parsed.report.callbackUrl).toBe(config.callbackUrl);
+          if (parsed.ok && body.extensions) {
+            const sent = body.extensions as { name: string; version?: string; active?: boolean; type?: string }[];
+            expect(parsed.report.extensions).toEqual(sent.map((e) => ({ name: e.name, version: e.version ?? null, active: e.active ?? null, type: e.type ?? null })));
+          }
+          if (parsed.ok && body.languages) {
+            // The center keeps every entry the reference sends (valid codes in the scenarios).
+            expect(parsed.report.languages).toEqual(body.languages);
+          }
+          if (parsed.ok && body.api_keys) {
+            const sent = body.api_keys as { name: string; check: { status: string } }[];
+            expect(parsed.report.apiKeys?.map((k) => [k.name, k.check?.status])).toEqual(sent.map((k) => [k.name, k.check.status]));
+          }
         }
         state = r.state;
       }

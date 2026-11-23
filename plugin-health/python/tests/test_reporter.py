@@ -1,4 +1,4 @@
-"""../spec/reporter.json and the Commando Center's spec (callback-vectors.json, report-v1.schema.json)."""
+"""../spec/reporter.json and the dashboard's spec (callback-vectors.json, report-v1.schema.json)."""
 
 from __future__ import annotations
 
@@ -26,6 +26,8 @@ from supertext_plugin_health import (
     NameVersion,
     ReporterResult,
     ReporterState,
+    normalize_extensions,
+    normalize_languages,
     parse_iso,
     ping_response,
     reporter_state,
@@ -61,7 +63,7 @@ class SdkApiKeyCheck:
 class Fakes:
     """Fake key checker (returns the step's keyCheck) and fake center; records the calls in order."""
 
-    def __init__(self, key_check: dict[str, Any] | None, report: dict[str, Any] | None) -> None:
+    def __init__(self, key_check: dict[str, Any] | list[dict[str, Any]] | None, report: dict[str, Any] | None) -> None:
         self.key_check = key_check
         self.report = report
         self.calls: list[str] = []
@@ -71,9 +73,11 @@ class Fakes:
     # KeyChecker
     def check(self, api_key: str) -> object:
         self.calls.append("keyCheck")
-        if self.key_check is None:
-            raise AssertionError("unexpected key check")
         k = self.key_check
+        if isinstance(k, list):
+            k = k.pop(0) if k else None
+        if k is None:
+            raise AssertionError("unexpected key check")
         return SdkApiKeyCheck(k["status"], k["checkedAt"], k["httpStatus"], k["errorCode"], k["fingerprint"])
 
     def fingerprint(self, api_key: str) -> str:
@@ -117,6 +121,8 @@ def reporter(config: dict[str, Any], fakes: Fakes, now: float = 0.0, **overrides
         "report_url": REPORT_URL,
         "transport": fakes,
         "now": lambda: now,
+        "extensions": (lambda: config["extensions"]) if config.get("extensions") is not None else None,
+        "languages": (lambda: config["languages"]) if config.get("languages") is not None else None,
         **overrides,
     }
     return InstallationReporter(**options)
@@ -185,14 +191,19 @@ def test_ping_center_vectors(case: dict[str, Any]) -> None:
 
 def run(r: InstallationReporter, step: dict[str, Any], state: ReporterState) -> ReporterResult:
     action = step["action"]
+    keys = step["apiKeys"] if "apiKeys" in step else step["apiKey"]
     if action == "afterSettingsSaved":
-        return r.after_settings_saved(state, step["apiKey"])
+        return r.after_settings_saved(state, keys)
     if action == "onRequest":
-        return r.on_request(state, step["apiKey"])
+        return r.on_request(state, keys)
     if action == "authenticationFailed":
-        return r.authentication_failed(state, step["apiKey"], step["httpStatus"])
+        return r.authentication_failed(state, keys, step["httpStatus"], step.get("keyName"))
     if action == "testConnection":
-        return r.test_connection(state, step["apiKey"])
+        return r.test_connection(state, keys)
+    if action == "sendExtensions":
+        return r.send_extensions(state, step["extensions"])
+    if action == "sendLanguages":
+        return r.send_languages(state, step["languages"])
     assert action == "reportCheck"
     return r.report_check(state)
 
@@ -202,13 +213,15 @@ def test_scenario(scenario: dict[str, Any]) -> None:
     config = {**S["config"], **scenario.get("config", {})}
     state = reporter_state(json.loads(json.dumps(scenario["state"])))
     for step in scenario["steps"]:
-        fakes = Fakes(step.get("keyCheck"), step.get("report"))
+        fakes = Fakes(list(step["keyChecks"]) if "keyChecks" in step else step.get("keyCheck"), step.get("report"))
         result = run(reporter(config, fakes, epoch(step["now"])), step, state)
         expect = step["expect"]
         assert fakes.calls == expect["calls"], step["action"]
         assert result.event == expect["event"]
         assert result.sent is expect["sent"]
         assert (result.check.to_dict() if result.check else None) == expect["check"]
+        checks = None if result.checks is None else {n: c.to_dict() for n, c in result.checks.items()}
+        assert checks == expect["checks"]
         assert result.state.to_dict() == expect["state"]
         if "reportBody" in expect:
             assert fakes.bodies[0] == expect["reportBody"]
@@ -359,10 +372,64 @@ def test_reads_a_state_stored_by_the_sdk_reporter() -> None:
     )
     state = reporter_state(old)
     assert state == ReporterState("0.2.0|12.0.0|22.11.0", "ok", None, OK)
-    assert json.loads(state.to_json()) == json.loads(old)
+    assert json.loads(state.to_json()) == {**json.loads(old), "keyChecks": None, "reportedKeyStatuses": None}
+
+
+def test_at_most_twenty_named_keys() -> None:
+    checks = [
+        {"status": "ok", "checkedAt": "2026-10-13T08:00:00Z", "httpStatus": 200, "errorCode": None, "fingerprint": "k1"}
+    ] * 30
+    fakes = Fakes(list(checks), {"status": 202})
+    keys = {" ": "x", "A ": "k1", **{f"Key {n}": "k1" for n in range(25)}}
+    result = reporter(S["config"], fakes).after_settings_saved(None, keys)
+    assert result.checks is not None and len(result.checks) == 20
+    assert next(iter(result.checks)) == "A"
+    assert len(fakes.bodies[0]["api_keys"]) == 20
 
 
 def test_detects_the_runtime() -> None:
     config = {**S["config"], "runtime": None}
     body = reporter(config, Fakes(None, None)).build_report("check", None)
     assert body["runtime"] == {"name": "Python", "version": platform.python_version()}
+
+
+def test_at_most_500_extensions_and_long_names_cut() -> None:
+    listed = [{"name": "x" * 150, "version": "v" * 80, "type": "P" * 40}]
+    listed += [{"name": f"Plugin {n}", "version": "1.0"} for n in range(520)]
+    out = normalize_extensions(listed)
+    assert len(out) == 500
+    assert out[0] == {"name": "x" * 100, "version": "v" * 50, "type": "p" * 30}
+    assert normalize_extensions([{"name": "Über", "type": "THÈME"}, "junk", {"name": "über", "type": "thème"}]) == [  # type: ignore[list-item]
+        {"name": "Über", "type": "thème"}
+    ]
+
+
+def test_a_failing_extensions_function_leaves_the_list_out() -> None:
+    def boom() -> list[dict[str, Any]]:
+        raise RuntimeError("boom")
+
+    fakes = Fakes(None, {"status": 202})
+    result = reporter(S["config"], fakes, extensions=boom).report_check(None)
+    assert result.sent is True
+    assert "extensions" not in fakes.bodies[0]
+
+
+def test_at_most_100_languages_and_long_codes_cut() -> None:
+    listed = [{"code": "x" * 50, "supertext": "y" * 50}]
+    listed += [{"code": f"l{n}", "supertext": "de-CH"} for n in range(120)]
+    out = normalize_languages(listed)
+    assert len(out) == 100
+    assert out[0] == {"code": "x" * 35, "supertext": "y" * 35}
+    assert normalize_languages([{"code": "Ü"}, "junk", {"code": "ü", "supertext": "de"}]) == [  # type: ignore[list-item]
+        {"code": "Ü", "supertext": None}
+    ]
+
+
+def test_a_failing_languages_function_leaves_the_mapping_out() -> None:
+    def boom() -> list[dict[str, Any]]:
+        raise RuntimeError("boom")
+
+    fakes = Fakes(None, {"status": 202})
+    result = reporter(S["config"], fakes, languages=boom).report_check(None)
+    assert result.sent is True
+    assert "languages" not in fakes.bodies[0]

@@ -1,12 +1,14 @@
 # User guide
 
-The Commando Center shows which Supertext plugin version each customer site runs, on which system and runtime version, whether its API key works, whether it can be reached from the internet, and what changed when. This guide is for Supertext staff who look things up and map sites to clients. Setup is in the [installation guide](INSTALLATION.md).
+Plugin Health shows which Supertext plugin version each customer site runs, on which system and runtime version, whether its API key works, whether it can be reached from the internet, and what changed when. This guide is for Supertext staff who look things up and map sites to clients. Setup is in the [installation guide](INSTALLATION.md).
 
 ## Sign in
 
-Open the center and enter the shared password. You stay signed in for 14 days on that browser; *Sign out* is at the top right.
+Open the dashboard and click **Sign in with Supertext**. You sign in with your Supertext account, as in Supertext's other admin tools (if you are already signed in there, you come straight back). You need the *Administrator* role in Supertext; without it, the dashboard says *Your Supertext account isn't allowed to use Plugin Health*: ask an administrator for access.
 
-![Login page of the Commando Center with a password field and a Sign in button](images/login.png)
+You stay signed in for 12 hours on that browser. Your name and *Sign out* are at the top right; *Sign out* also signs you out of the Supertext login.
+
+![Login page of Plugin Health with the Sign in with Supertext button](images/login.png)
 
 ## Installations
 
@@ -21,15 +23,15 @@ The start page lists every installation that has reported: one row per site URL 
 | **Plugin** | Which Supertext plugin; links to its GitHub repository |
 | **Plugin version** | The installed version, linked to its release notes, with a status: **latest**, **X.Y.Z available** (an update exists), **newer than release** (a development build) or **no release** (no published release found) |
 | **API key** | The result of the plugin's latest automatic key check (hover for the time and details), see below |
-| **Reachable** | Whether the center reached the plugin from the internet with its last ping, see below |
+| **Reachable** | Whether the dashboard reached the plugin from the internet with its last ping, see below |
 | **System** / **Runtime** | The CMS, shop or PIM with its version, and the PHP, Node.js, … version |
-| **Last report** | When the plugin last reported and why: *installed*, *settings saved*, *upgraded* (the plugin, the system or the runtime changed), *key checked* (the key check result changed, e.g. a translation was rejected) or *check* |
+| **Last report** | When the plugin last reported and why: *installed*, *settings saved*, *upgraded* (the plugin, the system or the runtime changed), *key checked* (the key check result changed, e.g. a translation was rejected), *plugins sent* (the site's administrator sent the list of installed plugins) or *check* |
 
 The counts at the top show how many installations there are, how many have a plugin update available, how many have an API key problem, how many aren't reachable from the internet, how many aren't mapped to a client yet, and how many reported in the last 30 days.
 
 ### API key check
 
-Each plugin checks its Supertext API key automatically when its settings are saved, when the key changes in its configuration, and when Supertext rejects a translation. The check costs nothing (it translates nothing). The center shows the latest result:
+Each plugin checks its Supertext API key automatically when its settings are saved, when the key changes in its configuration, and when Supertext rejects a translation. The check costs nothing (it translates nothing). The dashboard shows the latest result:
 
 | Badge | Meaning | What to do |
 | --- | --- | --- |
@@ -40,9 +42,11 @@ Each plugin checks its Supertext API key automatically when its settings are sav
 | **check failed** | Supertext answered with another error (status in brackets) | Look at the details on the installation page |
 | **not checked** | This plugin version doesn't send a key check yet | Recommend the plugin update |
 
+Some plugins use several API keys (the WordPress plugin, for example, one for AI translation and one for professional orders). The list then shows the worst of them, with "2 keys" next to it (hover to see each), and *API key problem* counts the installation if any key isn't ok. The installation page lists every key by the name the plugin gives it, each with its own result, and the history says which key changed.
+
 ### Reachable from the internet
 
-So that Supertext can call installations back later (for example "your translation is ready"), the center pings each plugin from the internet: it calls the plugin's small public ping endpoint and checks that the plugin itself answers. It pings after a report (at most once a minute per site) and when you press **Ping now**.
+So that Supertext can call installations back later (for example "your translation is ready"), the dashboard pings each plugin from the internet: it calls the plugin's small public ping endpoint and checks that the plugin itself answers. It pings after a report (at most once a minute per site) and when you press **Ping now**.
 
 | Badge | Meaning | Typical cause |
 | --- | --- | --- |
@@ -50,14 +54,14 @@ So that Supertext can call installations back later (for example "your translati
 | **not reachable** | No connection | Firewall, intranet-only site, DNS name not public, expired TLS certificate |
 | **blocked** | The site answered with an error or a redirect | The whole site is behind a login (typical for staging), a firewall rule returns 403 |
 | **wrong answer** | Something answered, but not the plugin | A cache, maintenance or firewall page in front of the site |
-| **refused** | The center didn't ping | The endpoint isn't on the site's own host, or points to a private address |
+| **refused** | The dashboard didn't ping | The endpoint isn't on the site's own host, or points to a private address |
 | **no endpoint** | This plugin version has no ping endpoint, or reporting is off | Recommend the plugin update |
 
 Hover a badge for the details and time. A site that isn't reachable still works normally: only future callbacks from Supertext need it.
 
 ### Filters
 
-Search by URL, client, system or notes; filter by plugin, client (or *Not mapped*), plugin version status, API key check and reachability. *Update available* answers "who still runs an old version?":
+Search by URL, client, system, notes the name of an installed plugin (*WPML* finds every site that sent a list with WPML in it) or a language code (*de-CH*, *en_IE*); filter by plugin, client (or *Not mapped*), plugin version status, API key check and reachability. *Update available* answers "who still runs an old version?":
 
 ![Installations filtered to Update available: only the sites with an outdated plugin version](images/installations-outdated.png)
 
@@ -69,7 +73,7 @@ Search by URL, client, system or notes; filter by plugin, client (or *Not mapped
 
 ![Installations filtered to Not reachable: a site that couldn't be reached, a wrong answer from a maintenance page and a staging site behind a login](images/installations-not-reachable.png)
 
-Local and test sites (`localhost`, `*.test`, `*.ddev.site`, private IP addresses, …) are hidden; tick *Show local and test hosts* to see them, for example a developer's installation.
+Test installations are hidden and marked *test*; tick *Show test installations* to see them. A site counts as a test installation automatically when its address is local or a test address (`localhost`, `*.test`, `*.ddev.site`, private IP addresses, …), or when someone marked it as one (see below).
 
 ## One installation
 
@@ -81,16 +85,34 @@ Under **Reachable from the internet** you see the plugin's ping endpoint, the la
 
 ![Reachable from the internet: the ping endpoint, the last result with its time, the Ping now button and the last pings with trigger and result](images/installation-reachability.png)
 
-The **History** lists every report, newest first, with its key check result and what changed compared with the report before: *Plugin 2.0.0 → 2.1.0*, *WordPress 6.8.3 → 6.9.0*, *API key rejected → ok*. Reports sent after an update carry no key check; the installation keeps the result of the last check. A plugin reports when its settings are saved and after the plugin, the system or the runtime was updated (with the next back-end request after the update).
+Under **Installed plugins** you see the other plugins installed on the site (name, type, version, active or not), as the site's administrator last sent them. Plugins don't send this list on their own: the administrator presses *Send configuration to Supertext* (older versions: *Send installed plugins to Supertext*) in the Supertext plugin's settings, for example when you ask for it in a support case. *Not sent* means nobody has pressed it yet, or the plugin version doesn't have the button.
+
+Under **Languages** you see the plugin's language mapping: each language configured on the site and the Supertext language it is translated into. *not mapped* marks a language the plugin can't translate yet; the customer picks a Supertext language for it in the plugin's settings. It is sent together with the installed plugins, when the administrator presses *Send configuration to Supertext*.
+
+![Languages: the WordPress languages of a site with the Supertext language each maps to, one marked as not mapped](images/installation-languages.png)
+
+![Installed plugins: the list a WordPress site sent, with name, type, version and whether each plugin is active](images/installation-extensions.png)
+
+The **History** lists every report, newest first, with its key check result and what changed compared with the report before: *Plugin 2.0.0 → 2.1.0*, *WordPress 6.8.3 → 6.9.0*, *API key rejected → ok*, and for a sent list of installed plugins what changed since the last one: *+ Yoast SEO 24.1*, *Polylang 3.6 → 3.7*, *Akismet deactivated*, *− WPML*, and for a sent language mapping what changed: *+ rm → not mapped*, *en_IE: not mapped → en-GB*. Reports sent after an update carry no key check; the installation keeps the result of the last check. A plugin reports when its settings are saved and after the plugin, the system or the runtime was updated (with the next back-end request after the update).
 
 ## Map installations to clients
 
-Plugins only send their URL, so the center doesn't know whose site it is. On the installation page, under **Client and notes**:
+Plugins only send their URL, so the dashboard doesn't know whose site it is. On the installation page, under **Client and notes**:
 
 - pick an existing client, or
 - type a name under *Or a new client* to create one,
 
 add notes if useful (production or staging, contact person) and click **Save**. Map staging and production sites to the same client.
+
+### Test installations
+
+Staging sites, our own demos and developers' sites on real addresses (`staging.kunde.ch`, `*.up.railway.app`) look like real installations. Under **Client and notes**, *Test installation* decides:
+
+- **Automatic** (the default): a test installation only when the address is local or a test address; the option says which applies.
+- **Test installation**: hidden in the list (unless *Show test installations* is ticked) and left out of the statistics, whatever the address.
+- **Real installation**: always shown and counted, even with a test address (for example a shared demo on `*.ddev.site`).
+
+Click **Save**. The choice stays when the site reports again. The dashboard still never pings local and test addresses.
 
 ## Clients
 
@@ -102,6 +124,14 @@ The client page lists the client's installations with their versions, and lets y
 
 ![Client page: the client's installations with plugin, system and runtime versions, then name and notes](images/client.png)
 
+## Translation proxy
+
+*Translation proxy* shows which plugins send their translations through the Supertext translation proxy: per customer (one Supertext API key, labelled in the proxy) the plugin, its version (with the same *latest* / *update available* status as the installations), the SDK, how many documents it uploaded, how many of them the proxy answered from its translation memory without calling Supertext, its key checks and its first and last request. The numbers are at most a minute old. Translations, corrections and review links are managed in the proxy itself, not here.
+
+![Translation proxy tab: three plugins with their customers, uploads and how many were answered from the memory](images/proxy.png)
+
+If the tab says it isn't connected, `COMMANDO_PROXY_URL` and `COMMANDO_PROXY_TOKEN` are missing (see the installation guide).
+
 ## Delete
 
 - **Delete installation** (installation page) removes it and its history, for example a test site or a site with an outdated URL. If the plugin reports again, it comes back as a new installation.
@@ -109,6 +139,6 @@ The client page lists the client's installations with their versions, and lets y
 
 ## What the plugins send
 
-The site URL, the plugin, system and runtime versions, the SDK version, whether an API key is set, the result of the key check and the address of the plugin's ping endpoint. No content, no API keys and no personal data. Administrators can turn reporting off in each plugin's settings (*Send version information to Supertext*); a site that turned it off stops reporting, and its last report stays in the center.
+The site URL, the plugin, system and runtime versions, the SDK version, whether an API key is set, the result of the key check and the address of the plugin's ping endpoint; the list of installed plugins only when an administrator presses the button. No content, no API keys and no personal data. Administrators can turn reporting off in each plugin's settings (*Send version information to Supertext*); a site that turned it off stops reporting, and its last report stays in the dashboard.
 
 Anyone who knows the address could send a report, so treat the data as information for support, not as proof.

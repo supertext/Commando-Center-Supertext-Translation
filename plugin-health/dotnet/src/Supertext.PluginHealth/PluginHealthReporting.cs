@@ -4,13 +4,35 @@ using System.Text.RegularExpressions;
 namespace Supertext.PluginHealth;
 
 /// <summary>
-/// Version reports to the Supertext Commando Center, the API key check result and the callback ping
+/// Version reports to the Supertext Plugin Health dashboard, the API key check result and the callback ping
 /// (plugin-health/spec/reporter.json). See <see cref="InstallationReporter"/> and <see cref="PingResponse"/>.
 /// </summary>
 public static partial class Reporting
 {
-    /// <summary>The live Commando Center. <c>SUPERTEXT_REPORT_URL</c> in the environment overrides it.</summary>
-    public const string DefaultReportUrl = "https://commandocenter-production.up.railway.app/api/v1/report";
+    /// <summary>
+    /// The live Plugin Health dashboard, from the embedded resource <c>config.json</c> (a copy of
+    /// plugin-health/config.json; its manifest name ends with <c>PluginHealth.config.json</c>).
+    /// <c>SUPERTEXT_REPORT_URL</c> in the environment overrides it. Empty if the resource is missing.
+    /// </summary>
+    public static readonly string DefaultReportUrl = LoadDefaultReportUrl();
+
+    private static string LoadDefaultReportUrl()
+    {
+        try
+        {
+            var assembly = typeof(Reporting).Assembly;
+            var name = Array.Find(assembly.GetManifestResourceNames(),
+                n => n.EndsWith("PluginHealth.config.json", StringComparison.OrdinalIgnoreCase));
+            if (name is null) return "";
+            using var stream = assembly.GetManifestResourceStream(name);
+            if (stream is null) return "";
+            return System.Text.Json.Nodes.JsonNode.Parse(stream)?["reportUrl"]?.GetValue<string>() ?? "";
+        }
+        catch (Exception)
+        {
+            return "";
+        }
+    }
 
     /// <summary>Timeout of a report.</summary>
     public static readonly TimeSpan ReportTimeout = TimeSpan.FromSeconds(3);
@@ -65,7 +87,25 @@ public static class ReportEvents
 
     /// <summary>Sent on request (<see cref="InstallationReporter.ReportCheckAsync"/>).</summary>
     public const string Check = "check";
+
+    /// <summary>The list of installed plugins was sent (<see cref="InstallationReporter.SendExtensionsAsync"/>).</summary>
+    public const string Extensions = "extensions";
+
+    /// <summary>The language mapping was sent (<see cref="InstallationReporter.SendLanguagesAsync"/>).</summary>
+    public const string Languages = "languages";
 }
+
+/// <summary>Another plugin, extension, module or theme installed on the site (see <see cref="InstallationReporter.SendExtensionsAsync"/>).</summary>
+/// <param name="Name">As the system shows it, e.g. "Polylang Pro".</param>
+/// <param name="Version">Its version, if known.</param>
+/// <param name="Active">Whether it is enabled; null if the system doesn't say.</param>
+/// <param name="Type">The system's own word: plugin, theme, module, extension, bundle, package, app, …</param>
+public sealed record Extension(string Name, string? Version = null, bool? Active = null, string? Type = null);
+
+/// <summary>One language of the system and the Supertext code it is translated as (see <see cref="InstallationReporter.SendLanguagesAsync"/>).</summary>
+/// <param name="Code">The system's own code, as it shows it: de_CH, en-GB, zh_Hans_CN, …</param>
+/// <param name="Supertext">The Supertext code the plugin uses for it (de-CH, fr-FR, zh-Hans, …); null: not mapped.</param>
+public sealed record LanguageMapping(string Code, string? Supertext = null);
 
 /// <summary>A name and an optional version (system, runtime, plugin).</summary>
 public sealed record NameVersion(string Name, string? Version = null);

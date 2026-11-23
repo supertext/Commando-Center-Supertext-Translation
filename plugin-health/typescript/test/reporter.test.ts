@@ -1,4 +1,4 @@
-// ../spec/reporter.json and the Commando Center's ping cases (spec/callback-vectors.json). That the
+// ../spec/reporter.json and the dashboard's ping cases (spec/callback-vectors.json). That the
 // center accepts every report body is checked in the center's own tests (test/unit/plugin-health.test.ts).
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
@@ -9,9 +9,13 @@ import {
   PLUGIN_HEALTH_VERSION,
   REPORT_TIMEOUT_MS,
   keyCheck,
+  normalizeExtensions,
+  normalizeLanguages,
   pingResponse,
   reporterState,
   reportsEnabled,
+  type Extension,
+  type LanguageMapping,
   type FetchLike,
   type KeyCheck,
   type KeyChecker,
@@ -25,16 +29,18 @@ const pkg = read('../package.json')
 
 type Answer = { status?: number; transportError?: boolean } | null | undefined
 
-/** Fake key checker (returns the step's keyCheck) and fake center; records the calls in order. */
-function fakes(stepCheck: KeyCheck | undefined, report: Answer) {
+/** Fake key checker (returns the step's keyCheck, or its keyChecks one per call) and fake center; records the calls in order. */
+function fakes(stepCheck: KeyCheck | KeyCheck[] | undefined, report: Answer) {
+  const queue = Array.isArray(stepCheck) ? [...stepCheck] : null
   const calls: string[] = []
   const bodies: Record<string, unknown>[] = []
   const headers: Record<string, string>[] = []
   const keyChecker: KeyChecker = {
     check: async () => {
       calls.push('keyCheck')
-      if (!stepCheck) throw new Error('unexpected key check')
-      return stepCheck
+      const next = queue ? queue.shift() : stepCheck
+      if (!next || Array.isArray(next)) throw new Error('unexpected key check')
+      return next
     },
     fingerprint: (apiKey) => {
       const fp = s.fingerprints[apiKey]
@@ -76,31 +82,43 @@ describe('spec/reporter.json', () => {
 
   for (const scenario of s.scenarios) {
     it(scenario.name, async () => {
-      const config = { ...s.config, ...scenario.config }
+      const { extensions: configExtensions, languages: configLanguages, ...config } = { ...s.config, ...scenario.config } as typeof s.config & {
+        extensions?: Extension[]
+        languages?: LanguageMapping[]
+      }
       let state: ReporterState = reporterState(JSON.parse(JSON.stringify(scenario.state)))
-      for (const step of scenario.steps) {
-        const f = fakes(step.keyCheck, step.report)
+      for (const raw of scenario.steps) {
+        const step = raw as typeof raw & { apiKeys?: Record<string, string>; keyChecks?: KeyCheck[]; keyName?: string; checks?: unknown; extensions?: Extension[]; languages?: LanguageMapping[] }
+        const keys = step.apiKeys ?? step.apiKey!
+        const f = fakes(step.keyChecks ?? step.keyCheck, step.report)
         const reporter = new InstallationReporter({
           ...config,
           keyChecker: f.keyChecker,
           reportUrl: 'https://center.test/api/v1/report',
           fetch: f.fetch,
           now: () => Date.parse(step.now),
+          ...(configExtensions ? { extensions: () => configExtensions } : {}),
+          ...(configLanguages ? { languages: () => configLanguages } : {}),
         })
         const r =
           step.action === 'afterSettingsSaved'
-            ? await reporter.afterSettingsSaved(state, step.apiKey)
+            ? await reporter.afterSettingsSaved(state, keys)
             : step.action === 'onRequest'
-              ? await reporter.onRequest(state, step.apiKey)
+              ? await reporter.onRequest(state, keys)
               : step.action === 'authenticationFailed'
-                ? await reporter.authenticationFailed(state, step.apiKey, step.httpStatus)
+                ? await reporter.authenticationFailed(state, keys, step.httpStatus, step.keyName)
                 : step.action === 'testConnection'
-                  ? await reporter.testConnection(state, step.apiKey)
-                  : await reporter.reportCheck(state)
+                  ? await reporter.testConnection(state, keys)
+                  : step.action === 'sendExtensions'
+                    ? await reporter.sendExtensions(state, step.extensions!)
+                    : step.action === 'sendLanguages'
+                      ? await reporter.sendLanguages(state, step.languages!)
+                      : await reporter.reportCheck(state)
         expect(f.calls, step.action).toEqual(step.expect.calls)
         expect(r.event).toBe(step.expect.event)
         expect(r.sent).toBe(step.expect.sent)
         expect(r.check).toEqual(step.expect.check)
+        expect(r.checks).toEqual((step.expect as { checks?: unknown }).checks)
         expect(r.state).toEqual(step.expect.state)
         if (step.expect.reportBody) expect(f.bodies[0]).toEqual(step.expect.reportBody)
         for (const h of f.headers) expect(h['User-Agent']).toBe(`supertext-plugin-health/${PLUGIN_HEALTH_VERSION} (typescript) ${config.plugin.name}/${config.plugin.version}`)
@@ -166,17 +184,90 @@ describe('reporter', () => {
   })
 
   it('treats a broken stored state as empty', () => {
-    expect(reporterState('not json')).toEqual({ reportedVersions: null, reportedKeyStatus: null, lastFailureAt: null, keyCheck: null })
+    expect(reporterState('not json')).toEqual({ reportedVersions: null, reportedKeyStatus: null, lastFailureAt: null, keyCheck: null, keyChecks: null, reportedKeyStatuses: null })
     expect(reporterState(null).keyCheck).toBeNull()
   })
 
   it('reads a state stored by the Supertext SDK 0.1–0.2 reporter', () => {
     const old = '{"reportedVersions":"0.2.0|12.0.0|22.11.0","reportedKeyStatus":"ok","lastFailureAt":null,"keyCheck":{"status":"ok","checkedAt":"2026-10-13T08:00:00Z","httpStatus":200,"errorCode":null,"fingerprint":"abc"}}'
-    expect(reporterState(old)).toEqual({ reportedVersions: '0.2.0|12.0.0|22.11.0', reportedKeyStatus: 'ok', lastFailureAt: null, keyCheck: okCheck })
+    expect(reporterState(old)).toEqual({ reportedVersions: '0.2.0|12.0.0|22.11.0', reportedKeyStatus: 'ok', lastFailureAt: null, keyCheck: okCheck, keyChecks: null, reportedKeyStatuses: null })
   })
 
   it('detects the runtime', () => {
     const reporter = new InstallationReporter({ ...s.config, runtime: undefined, keyChecker: fakes(undefined, null).keyChecker })
     expect(reporter.buildReport('check', reporterState(null)).runtime).toEqual({ name: 'Node.js', version: process.versions.node })
+  })
+  it('sends at most 500 installed plugins and cuts long names', () => {
+    const list: Extension[] = Array.from({ length: 520 }, (_, n) => ({ name: `Plugin ${n}`, version: '1.0' }))
+    list.unshift({ name: 'x'.repeat(150), version: 'v'.repeat(80), type: 'P'.repeat(40) })
+    const out = normalizeExtensions(list)
+    expect(out).toHaveLength(500)
+    expect(out[0]).toEqual({ name: 'x'.repeat(100), version: 'v'.repeat(50), type: 'p'.repeat(30) })
+  })
+
+  it('sends at most 100 languages and cuts long codes', () => {
+    const list: LanguageMapping[] = Array.from({ length: 120 }, (_, n) => ({ code: `l${n}`, supertext: 'de-CH' }))
+    list.unshift({ code: 'x'.repeat(50), supertext: 'y'.repeat(50) })
+    const out = normalizeLanguages(list)
+    expect(out).toHaveLength(100)
+    expect(out[0]).toEqual({ code: 'x'.repeat(35), supertext: 'y'.repeat(35) })
+  })
+
+  it('a languages function that throws leaves the mapping out, the report still goes', async () => {
+    const f = fakes(okCheck, { status: 202 })
+    const reporter = new InstallationReporter({
+      ...s.config,
+      keyChecker: { ...f.keyChecker, fingerprint: () => 'fp' },
+      reportUrl: 'https://center.test/api/v1/report',
+      fetch: f.fetch,
+      languages: () => {
+        throw new Error('boom')
+      },
+    })
+    const r = await reporter.reportCheck(null)
+    expect(r.sent).toBe(true)
+    expect(f.bodies[0]).not.toHaveProperty('languages')
+  })
+
+  it('an extensions function that throws leaves the list out, the report still goes', async () => {
+    const f = fakes(okCheck, { status: 202 })
+    const reporter = new InstallationReporter({
+      ...s.config,
+      keyChecker: { ...f.keyChecker, fingerprint: () => 'fp' },
+      reportUrl: 'https://center.test/api/v1/report',
+      fetch: f.fetch,
+      extensions: () => {
+        throw new Error('boom')
+      },
+    })
+    const r = await reporter.reportCheck(null)
+    expect(r.sent).toBe(true)
+    expect(f.bodies[0]).not.toHaveProperty('extensions')
+  })
+
+  it('checks at most 20 named keys and drops blank and repeated names', async () => {
+    const f = fakes(Array.from({ length: 30 }, () => okCheck), { status: 202 })
+    const reporter = new InstallationReporter({ ...s.config, keyChecker: { ...f.keyChecker, fingerprint: () => 'fp' }, reportUrl: 'https://center.test/api/v1/report', fetch: f.fetch })
+    const keys: Record<string, string> = { ' ': 'x', 'A ': 'k1' }
+    for (let n = 0; n < 25; n++) keys[`Key ${n}`] = 'k1'
+    keys['A'] = 'k2'
+    const r = await reporter.afterSettingsSaved(null, keys)
+    expect(Object.keys(r.checks!)).toHaveLength(20)
+    expect(Object.keys(r.checks!)[0]).toBe('A')
+    expect((f.bodies[0]!.api_keys as unknown[]).length).toBe(20)
+  })
+
+  it('switches between one key and several', async () => {
+    const f = fakes([okCheck, okCheck, okCheck], { status: 202 })
+    const reporter = new InstallationReporter({ ...s.config, keyChecker: { ...f.keyChecker, fingerprint: () => 'fp' }, reportUrl: 'https://center.test/api/v1/report', fetch: f.fetch })
+    const one = await reporter.afterSettingsSaved(null, 'k1')
+    expect(one.state.keyChecks).toBeNull()
+    const many = await reporter.onRequest(one.state, { 'AI translation': 'k1' })
+    expect(many.event).toBe('api_key_check')
+    expect(many.state.keyCheck).toBeNull()
+    const back = await reporter.onRequest(many.state, 'k1')
+    expect(back.state.keyChecks).toBeNull()
+    expect(back.state.reportedKeyStatuses).toBeNull()
+    expect(f.bodies.map((b) => ('api_keys' in b ? 'many' : 'one'))).toEqual(['one', 'many', 'one'])
   })
 })

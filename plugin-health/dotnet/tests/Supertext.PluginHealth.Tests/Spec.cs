@@ -24,7 +24,7 @@ internal static class Spec
     /// <summary>plugin-health/spec/&lt;name&gt;.</summary>
     public static JsonElement Load(string name) => Read(Path.Combine(PluginHealthDir.Value, "spec", name));
 
-    /// <summary>The Commando Center's spec/&lt;name&gt; (next to plugin-health/).</summary>
+    /// <summary>The Plugin Health dashboard's spec/&lt;name&gt; (next to plugin-health/).</summary>
     public static JsonElement Center(string name) => Read(Path.Combine(PluginHealthDir.Value, "..", "spec", name));
 
     /// <summary>plugin-health/typescript/package.json.</summary>

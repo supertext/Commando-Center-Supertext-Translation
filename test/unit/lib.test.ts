@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { compareVersions, versionStatus } from '../../src/lib/semver';
-import { checkPassword, createSession, verifySession } from '../../src/lib/auth';
+import { createSession, readSession, verifySession } from '../../src/lib/auth';
 import { RateLimiter, clientIp } from '../../src/lib/rate-limit';
 import { databaseUrls } from '../../src/lib/db-url.mjs';
-import { clearReleaseCache, latestRelease, releaseUrl } from '../../src/lib/releases';
+import { clearReleaseCache, latestRelease, releaseUrl, repoUrl } from '../../src/lib/releases';
 
 describe('compareVersions', () => {
   it.each([
@@ -31,39 +31,39 @@ describe('compareVersions', () => {
 });
 
 describe('auth', () => {
-  const old = process.env.COMMANDO_PASSWORD;
+  const old = process.env.COMMANDO_SESSION_SECRET;
   beforeEach(() => {
-    process.env.COMMANDO_PASSWORD = 'correct horse battery';
+    process.env.COMMANDO_SESSION_SECRET = 'x'.repeat(40);
   });
   afterEach(() => {
-    process.env.COMMANDO_PASSWORD = old;
-  });
-
-  it('checks the password', () => {
-    expect(checkPassword('correct horse battery')).toBe(true);
-    expect(checkPassword('wrong')).toBe(false);
-    expect(checkPassword('')).toBe(false);
-  });
-
-  it('refuses passwords shorter than 12 characters', () => {
-    process.env.COMMANDO_PASSWORD = 'short';
-    expect(checkPassword('short')).toBe(false);
-    expect(createSession()).toBeNull();
+    if (old === undefined) delete process.env.COMMANDO_SESSION_SECRET;
+    else process.env.COMMANDO_SESSION_SECRET = old;
   });
 
   it('signs and verifies sessions', () => {
-    const s = createSession(1_000)!;
-    expect(verifySession(s.value, 2_000)).toBe(true);
+    const s = createSession({ sub: '7', name: 'Ada Muster', email: 'ada@supertext.com' }, 1_000)!;
+    expect(readSession(s.value, 2_000)).toEqual({ sub: '7', name: 'Ada Muster', email: 'ada@supertext.com' });
+    expect(s.expires.getTime()).toBe(1_000 + 12 * 3600_000);
     expect(verifySession(s.value, s.expires.getTime() + 1)).toBe(false);
-    expect(verifySession(`${s.expires.getTime() + 999}.${s.value.split('.')[1]}`, 2_000)).toBe(false);
+    const [v, body, mac] = s.value.split('.');
+    const forged = Buffer.from(JSON.stringify({ via: 'oidc', sub: '1', exp: 9e15 })).toString('base64url');
+    expect(verifySession(`${v}.${forged}.${mac}`, 2_000)).toBe(false);
+    expect(verifySession(`${v}.${body}.x${mac}`, 2_000)).toBe(false);
     expect(verifySession('garbage', 2_000)).toBe(false);
     expect(verifySession(undefined, 2_000)).toBe(false);
   });
 
-  it('a new password signs everyone out', () => {
-    const s = createSession(1_000)!;
-    process.env.COMMANDO_PASSWORD = 'another long password';
-    expect(verifySession(s.value, 2_000)).toBe(false);
+  it('needs COMMANDO_SESSION_SECRET of 32+ characters and signs out on a change', () => {
+    const s = createSession({ sub: '7' }, 1_000)!;
+    process.env.COMMANDO_SESSION_SECRET = 'y'.repeat(40);
+    expect(readSession(s.value, 2_000)).toBeNull();
+    process.env.COMMANDO_SESSION_SECRET = 'short';
+    expect(createSession({ sub: '7' })).toBeNull();
+  });
+
+  it('refuses old password sessions', () => {
+    const forged = Buffer.from(JSON.stringify({ via: 'password', exp: 9e15 })).toString('base64url');
+    expect(readSession(`v2.${forged}.x`, 2_000)).toBeNull();
   });
 });
 
@@ -127,8 +127,16 @@ describe('latestRelease', () => {
 
   it('builds release links only for X.Y.Z versions', () => {
     expect(releaseUrl('Typo3-Supertext-Translation', '0.4.0')).toBe(
-      'https://github.com/Supertext/Typo3-Supertext-Translation/releases/tag/v0.4.0',
+      'https://github.com/supertext/Typo3-Supertext-Translation/releases/tag/v0.4.0',
     );
     expect(releaseUrl('X', 'dev-main')).toBeNull();
+  });
+});
+
+describe('repoUrl', () => {
+  it('knows the WordPress plugin under its repository name', () => {
+    expect(repoUrl('supertext-wordpress-polylang')).toBe('https://github.com/supertext/Wordpress-Polylang-Supertext-Translation');
+    expect(repoUrl('supertext-wordpress-wpml')).toBe('https://github.com/supertext/Wordpress-WPML-Supertext-Translation');
+    expect(releaseUrl('supertext-wordpress-polylang', '0.14.0')).toBe('https://github.com/supertext/Wordpress-Polylang-Supertext-Translation/releases/tag/v0.14.0');
   });
 });

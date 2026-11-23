@@ -1,6 +1,6 @@
 # Supertext Plugin Health (TypeScript)
 
-Version reports, the API key check result and the reachability ping of Supertext plugins, for the [Supertext Commando Center](https://github.com/Supertext/Commando-Center-Supertext-Translation). No dependencies; Node.js 18+ (also Deno and Bun).
+Version reports, the API key check result and the reachability ping of Supertext plugins, for the [Supertext Plugin Health dashboard](https://github.com/Supertext/Commando-Center-Supertext-Translation). No dependencies; Node.js 18+ (also Deno and Bun).
 
 Usage, concepts and bundling: [Plugin Health README](../README.md). Reference implementation: the other languages follow `src/index.ts` and `../spec/reporter.json`.
 

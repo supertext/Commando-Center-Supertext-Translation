@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
 import { getInstallation, installationHistory, listClients, pingHistory, type Installation, type ReportRow } from '@/lib/db';
 import { latestRelease, repoUrl } from '@/lib/releases';
-import { CallbackStatus, EVENT_LABEL, KeyStatus, NameVersion, PluginVersion, ago, formatDate, keyStatusWord } from '@/components/ui';
+import { extensionChanges, sortExtensions } from '@/lib/extensions';
+import { languageChanges, sortLanguages } from '@/lib/languages';
+import { CallbackStatus, EVENT_LABEL, KeyStatus, NameVersion, PluginVersion, ago, formatDate, keyStatusWord, TestBadge } from '@/components/ui';
 import ConfirmButton from '@/components/confirm-button';
 import { pingNow, removeInstallation, saveInstallation } from '../../actions';
 
@@ -11,6 +13,22 @@ export const dynamic = 'force-dynamic';
 
 /** What changed in a report compared with the reports before it (history is newest first). */
 function changes(history: ReportRow[], k: number, i: Installation): string[] {
+  const out = versionAndKeyChanges(history, k, i);
+  const row = history[k];
+  // Installed plugins: compared with the last report that carried a list.
+  if (row.extensions) {
+    const prev = history.slice(k + 1).find((h) => h.extensions)?.extensions ?? null;
+    out.push(...extensionChanges(prev, row.extensions));
+  }
+  // Language mapping: compared with the last report that carried one.
+  if (row.languages) {
+    const prev = history.slice(k + 1).find((h) => h.languages)?.languages ?? null;
+    out.push(...languageChanges(prev, row.languages));
+  }
+  return out;
+}
+
+function versionAndKeyChanges(history: ReportRow[], k: number, i: Installation): string[] {
   const row = history[k];
   const before = history[k + 1];
   if (!before) return row.api_key_status ? ['first report', `API key ${keyStatusWord(row.api_key_status)}`] : ['first report'];
@@ -24,6 +42,19 @@ function changes(history: ReportRow[], k: number, i: Installation): string[] {
   diff('SDK', before.sdk_version, row.sdk_version);
   if (before.api_key_configured !== row.api_key_configured && row.api_key_configured !== null) {
     out.push(row.api_key_configured ? 'API key set' : 'API key removed');
+  }
+  // Named keys: what changed per key, compared with the last report that had them.
+  if (row.api_keys) {
+    const prevKeys = history.slice(k + 1).find((h) => h.api_keys)?.api_keys ?? null;
+    for (const key of row.api_keys) {
+      const old = prevKeys?.find((p) => p.name === key.name);
+      if (!old) out.push(`${key.name}: ${key.status ? keyStatusWord(key.status) : key.configured ? 'set' : 'not set'}`);
+      else if (key.status && old.status !== key.status)
+        out.push(`${key.name}: ${old.status ? `${keyStatusWord(old.status)} → ` : ''}${keyStatusWord(key.status)}`);
+      else if (old.configured !== key.configured && key.configured !== null) out.push(`${key.name}: ${key.configured ? 'set' : 'removed'}`);
+    }
+    for (const old of prevKeys ?? []) if (!row.api_keys.some((x) => x.name === old.name)) out.push(`${old.name}: no longer reported`);
+    return out;
   }
   // Reports without a check (e.g. upgrades) don't change the key status: compare with the last check before.
   if (row.api_key_status) {
@@ -65,7 +96,7 @@ export default async function InstallationPage({
       </p>
       <h1 className="row">
         {i.site_url}
-        {i.local && <span className="badge local">local</span>}
+        <TestBadge local={i.local} test_override={i.test_override} />
       </h1>
       <p className="sub">
         <a className="link" href={i.site_url} target="_blank" rel="noopener noreferrer">
@@ -101,8 +132,29 @@ export default async function InstallationPage({
             </dd>
             <dt>SDK</dt>
             <dd className="mono">{i.sdk_version ?? '–'}</dd>
-            <dt>API key</dt>
+            <dt>{i.api_keys ? 'API keys' : 'API key'}</dt>
             <dd>
+              {i.api_keys ? (
+                i.api_keys.length === 0 ? (
+                  <span className="muted small">none reported</span>
+                ) : (
+                  <ul className="keys">
+                    {i.api_keys.map((key) => (
+                      <li key={key.name} className="row" style={{ gap: 6 }}>
+                        <span>{key.name}</span>
+                        <KeyStatus status={key.status} checkedAt={key.checked_at} httpStatus={key.http_status} errorCode={key.error_code} />
+                        {key.checked_at && <span className="muted small">checked {formatDate(key.checked_at)}</span>}
+                        {(key.http_status || key.error_code) && key.status !== 'ok' && (
+                          <span className="mono small">
+                            {[key.http_status ? `HTTP ${key.http_status}` : '', key.error_code ?? ''].filter(Boolean).join(' ')}
+                          </span>
+                        )}
+                        {!key.status && key.configured !== null && <span className="muted small">{key.configured ? 'set' : 'not set'}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : (
               <span className="row" style={{ gap: 6 }}>
                 <KeyStatus
                   status={i.api_key_status}
@@ -120,6 +172,7 @@ export default async function InstallationPage({
                   <span className="muted small">{i.api_key_configured ? 'set' : 'not set'}</span>
                 )}
               </span>
+              )}
             </dd>
             <dt>Last report</dt>
             <dd>
@@ -152,6 +205,15 @@ export default async function InstallationPage({
             <label>
               Notes
               <textarea name="notes" defaultValue={i.notes} maxLength={5000} placeholder="Contact, staging or production, …" />
+            </label>
+            <label>
+              Test installation
+              <select name="test" defaultValue={i.test_override === null ? 'auto' : i.test_override ? 'test' : 'real'}>
+                <option value="auto">Automatic: {i.local ? 'test (local or test host)' : 'real'}</option>
+                <option value="test">Test installation</option>
+                <option value="real">Real installation</option>
+              </select>
+              <span className="muted small" style={{ fontWeight: 400 }}>Test installations are hidden in the list and left out of the statistics.</span>
             </label>
             <div className="row">
               <button type="submit" className="primary">
@@ -198,7 +260,7 @@ export default async function InstallationPage({
           </form>
         )}
         {pings.length > 0 && (
-          <div className="table-wrap" style={{ borderTop: '1px solid var(--border)' }}>
+          <div className="table-wrap" style={{ borderTop: '1px solid var(--line)' }}>
             <table>
               <thead>
                 <tr>
@@ -227,6 +289,100 @@ export default async function InstallationPage({
               </tbody>
             </table>
           </div>
+        )}
+      </section>
+
+      <h2 id="languages">Languages</h2>
+      <section className="card" aria-labelledby="languages">
+        {i.languages === null ? (
+          <p className="muted" style={{ padding: '14px 20px', margin: 0 }}>
+            Not sent. The site&apos;s administrator sends the plugin&apos;s language mapping with the button in the
+            Supertext plugin&apos;s settings (plugins with Plugin Health 0.4 or newer).
+          </p>
+        ) : (
+          <>
+            <p className="small" style={{ padding: '14px 20px 0', margin: 0 }}>
+              {i.languages.length} {i.languages.length === 1 ? 'language' : 'languages'},{' '}
+              {i.languages.filter((l) => l.supertext === null).length} not mapped · sent{' '}
+              {i.languages_at ? `${formatDate(i.languages_at)} (${ago(i.languages_at)})` : '–'}
+            </p>
+            {i.languages.length > 0 && (
+              <div className="table-wrap" style={{ marginTop: 12, borderTop: '1px solid var(--line)' }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>{i.system} language</th>
+                      <th>Supertext language</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortLanguages(i.languages).map((l) => (
+                      <tr key={l.code}>
+                        <td className="mono">{l.code}</td>
+                        <td>
+                          {l.supertext === null ? (
+                            <span className="badge bad" title="Translating into or from this language fails until it is mapped in the plugin's settings">
+                              not mapped
+                            </span>
+                          ) : (
+                            <span className="mono">{l.supertext}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      <h2 id="extensions">Installed plugins</h2>
+      <section className="card" aria-labelledby="extensions">
+        {i.extensions === null ? (
+          <p className="muted" style={{ padding: '14px 20px', margin: 0 }}>
+            Not sent. The site&apos;s administrator sends the list of the other plugins installed on the site with the
+            button in the Supertext plugin&apos;s settings (plugins with Plugin Health 0.3 or newer).
+          </p>
+        ) : (
+          <>
+            <p className="small" style={{ padding: '14px 20px 0', margin: 0 }}>
+              {i.extensions.length} {i.extensions.length === 1 ? 'plugin' : 'plugins'},{' '}
+              {i.extensions.filter((e) => e.active !== false).length} active · sent{' '}
+              {i.extensions_at ? `${formatDate(i.extensions_at)} (${ago(i.extensions_at)})` : '–'}
+            </p>
+            {i.extensions.length > 0 && (
+              <div className="table-wrap" style={{ marginTop: 12, borderTop: '1px solid var(--line)' }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Type</th>
+                      <th>Version</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortExtensions(i.extensions).map((e) => (
+                      <tr key={`${e.type ?? ''}:${e.name}`}>
+                        <td>{e.name}</td>
+                        <td className="muted">{e.type ?? '–'}</td>
+                        <td className="mono">{e.version ?? '–'}</td>
+                        <td>
+                          {e.active === null ? (
+                            <span className="muted">–</span>
+                          ) : (
+                            <span className={`badge ${e.active ? 'current' : 'unknown'}`}>{e.active ? 'active' : 'inactive'}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </section>
 

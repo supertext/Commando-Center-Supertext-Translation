@@ -1,6 +1,6 @@
 {
     "name": "supertext/plugin-health",
-    "description": "Supertext Plugin Health: version reports, API key check results and the reachability ping of Supertext plugins, for the Supertext Commando Center.",
+    "description": "Supertext Plugin Health: version reports, API key check results and the reachability ping of Supertext plugins, for the Supertext Plugin Health dashboard.",
     "type": "library",
     "license": "MIT",
     "keywords": ["supertext", "plugin", "health", "version-report"],

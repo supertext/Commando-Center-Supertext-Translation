@@ -1,6 +1,6 @@
 # Supertext Plugin Health (Python)
 
-Version reports, the API key check result and the reachability ping of Supertext plugins, for the [Supertext Commando Center](https://github.com/Supertext/Commando-Center-Supertext-Translation). No dependencies; Python 3.10+. Import package `supertext_plugin_health`, distribution `supertext-plugin-health`.
+Version reports, the API key check result and the reachability ping of Supertext plugins, for the [Supertext Plugin Health dashboard](https://github.com/Supertext/Commando-Center-Supertext-Translation). No dependencies; Python 3.10+. Import package `supertext_plugin_health`, distribution `supertext-plugin-health`.
 
 Usage, concepts and bundling: [Plugin Health README](../README.md). The behaviour follows the TypeScript reference (`../typescript/src/index.ts`) and `../spec/reporter.json`.
 
@@ -40,4 +40,4 @@ python -m pip install -e '.[test]'
 python -m pytest && python -m mypy && python -m ruff check . && python -m ruff format --check .
 ```
 
-The tests read `../spec/reporter.json`, the center's `../../spec/` (ping cases, report schema) and `../typescript/package.json` (same version).
+The tests read `../spec/reporter.json`, the dashboard's `../../spec/` (ping cases, report schema) and `../typescript/package.json` (same version).

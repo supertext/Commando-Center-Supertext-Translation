@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 /**
- * ../spec/reporter.json and the Commando Center's spec (../../spec: ping cases, report schema). That the
+ * ../spec/reporter.json and the dashboard's spec (../../spec: ping cases, report schema). That the
  * center accepts every report body is checked in the center's own tests with the TypeScript reference.
  */
 class ReporterTest {
@@ -76,18 +76,22 @@ class ReporterTest {
         private final Object keyCheck;
         private final Object report;
 
+        private final java.util.ArrayDeque<Object> queue;
+
         Fakes(Object keyCheck, Object report) {
             this.keyCheck = keyCheck;
             this.report = report;
+            this.queue = keyCheck instanceof List ? new java.util.ArrayDeque<>((List<?>) keyCheck) : null;
         }
 
         @Override
         public KeyCheck check(String apiKey) {
             calls.add("keyCheck");
-            if (keyCheck == null) {
+            Object next = queue != null ? queue.poll() : keyCheck;
+            if (next == null) {
                 throw new AssertionError("unexpected key check");
             }
-            return KeyCheck.fromMap(keyCheck);
+            return KeyCheck.fromMap(next);
         }
 
         @Override
@@ -133,7 +137,47 @@ class ReporterTest {
             Map<String, Object> runtime = map(config.get("runtime"));
             b.runtime(str(runtime.get("name")), str(runtime.get("version")));
         }
+        if (config.get("extensions") != null) {
+            List<Extension> listed = extensions(config.get("extensions"));
+            b.extensions(() -> listed);
+        }
+        if (config.get("languages") != null) {
+            List<LanguageMapping> mapping = languages(config.get("languages"));
+            b.languages(() -> mapping);
+        }
         return b;
+    }
+
+    /** The spec's raw mappings: entries without a string code get a null code. */
+    private static List<LanguageMapping> languages(Object value) {
+        List<LanguageMapping> out = new ArrayList<>();
+        for (Object o : (List<?>) value) {
+            if (!(o instanceof Map)) {
+                out.add(null);
+                continue;
+            }
+            Map<String, Object> e = map(o);
+            out.add(new LanguageMapping(e.get("code") instanceof String ? (String) e.get("code") : null,
+                    e.get("supertext") instanceof String ? (String) e.get("supertext") : null));
+        }
+        return out;
+    }
+
+    /** The spec's raw lists: entries without a string name get a null name, other wrong types are left out. */
+    private static List<Extension> extensions(Object value) {
+        List<Extension> out = new ArrayList<>();
+        for (Object o : (List<?>) value) {
+            if (!(o instanceof Map)) {
+                out.add(null);
+                continue;
+            }
+            Map<String, Object> e = map(o);
+            out.add(new Extension(e.get("name") instanceof String ? (String) e.get("name") : null,
+                    e.get("version") instanceof String ? (String) e.get("version") : null,
+                    e.get("active") instanceof Boolean ? (Boolean) e.get("active") : null,
+                    e.get("type") instanceof String ? (String) e.get("type") : null));
+        }
+        return out;
     }
 
     private static String userAgent(Map<String, Object> config) {
@@ -183,30 +227,47 @@ class ReporterTest {
             ReporterState state = ReporterState.fromJson(Json.write(scenario.get("state")));
             for (Map<String, Object> step : list(scenario, "steps")) {
                 String action = str(step.get("action"));
-                Fakes f = new Fakes(step.get("keyCheck"), step.get("report"));
+                Fakes f = new Fakes(step.get("keyChecks") != null ? step.get("keyChecks") : step.get("keyCheck"), step.get("report"));
                 InstallationReporter reporter = configured(config, f)
                         .reportUrl(REPORT_URL)
                         .transport(f)
                         .clock(at(str(step.get("now"))))
                         .build();
                 String apiKey = str(step.get("apiKey"));
+                Map<String, String> named = null;
+                if (step.get("apiKeys") != null) {
+                    named = new LinkedHashMap<>();
+                    for (Map.Entry<String, Object> e : map(step.get("apiKeys")).entrySet()) {
+                        named.put(e.getKey(), str(e.getValue()));
+                    }
+                }
                 ReporterResult r;
                 switch (action) {
                     case "afterSettingsSaved":
-                        r = reporter.afterSettingsSaved(state, apiKey);
+                        r = named != null ? reporter.afterSettingsSaved(state, named) : reporter.afterSettingsSaved(state, apiKey);
                         break;
                     case "onRequest":
-                        r = reporter.onRequest(state, apiKey);
+                        r = named != null ? reporter.onRequest(state, named) : reporter.onRequest(state, apiKey);
                         break;
                     case "authenticationFailed":
-                        r = step.get("httpStatus") == null ? reporter.authenticationFailed(state, apiKey)
-                                : reporter.authenticationFailed(state, apiKey, ((Number) step.get("httpStatus")).intValue());
+                        if (named != null) {
+                            r = reporter.authenticationFailed(state, named, ((Number) step.get("httpStatus")).intValue(), str(step.get("keyName")));
+                        } else {
+                            r = step.get("httpStatus") == null ? reporter.authenticationFailed(state, apiKey)
+                                    : reporter.authenticationFailed(state, apiKey, ((Number) step.get("httpStatus")).intValue());
+                        }
                         break;
                     case "testConnection":
-                        r = reporter.testConnection(state, apiKey);
+                        r = named != null ? reporter.testConnection(state, named) : reporter.testConnection(state, apiKey);
                         break;
                     case "reportCheck":
                         r = reporter.reportCheck(state);
+                        break;
+                    case "sendExtensions":
+                        r = reporter.sendExtensions(state, extensions(step.get("extensions")));
+                        break;
+                    case "sendLanguages":
+                        r = reporter.sendLanguages(state, languages(step.get("languages")));
                         break;
                     default:
                         throw new AssertionError("unknown action " + action);
@@ -216,6 +277,14 @@ class ReporterTest {
                 assertEquals(expect.get("event"), r.getEvent() == null ? null : r.getEvent().value(), action + " event");
                 assertEquals(expect.get("sent"), r.isSent(), action + " sent");
                 assertEquals(expect.get("check"), parsed(r.getCheck()), action + " check");
+                Map<String, Object> checks = null;
+                if (r.getChecks() != null) {
+                    checks = new LinkedHashMap<>();
+                    for (Map.Entry<String, KeyCheck> e : r.getChecks().entrySet()) {
+                        checks.put(e.getKey(), parsed(e.getValue()));
+                    }
+                }
+                assertEquals(expect.get("checks"), checks, action + " checks");
                 assertEquals(expect.get("state"), Json.parse(r.getState().toJson()), action + " state");
                 if (expect.get("reportBody") != null) {
                     assertEquals(expect.get("reportBody"), f.bodies.get(0), action + " report body");
@@ -344,7 +413,7 @@ class ReporterTest {
         assertEquals(ReporterState.EMPTY, ReporterState.fromJson(null));
         assertEquals(ReporterState.EMPTY, ReporterState.fromJson("[1,2]"));
         assertNull(ReporterState.fromJson("{\"keyCheck\":{\"status\":\"ok\"}}").getKeyCheck());
-        assertEquals("{\"reportedVersions\":null,\"reportedKeyStatus\":null,\"lastFailureAt\":null,\"keyCheck\":null}",
+        assertEquals("{\"reportedVersions\":null,\"reportedKeyStatus\":null,\"lastFailureAt\":null,\"keyCheck\":null,\"keyChecks\":null,\"reportedKeyStatuses\":null}",
                 ReporterState.EMPTY.toJson());
     }
 
@@ -355,7 +424,27 @@ class ReporterTest {
         ReporterState state = ReporterState.fromJson(old);
         assertEquals(new ReporterState("0.2.0|12.0.0|22.11.0", "ok", null,
                 new KeyCheck("ok", "2026-10-13T08:00:00Z", 200, null, "abc")), state);
-        assertEquals(old, state.toJson());
+        assertEquals(old.substring(0, old.length() - 1) + ",\"keyChecks\":null,\"reportedKeyStatuses\":null}", state.toJson());
+    }
+
+    @Test
+    void checksAtMostTwentyNamedKeys() {
+        List<Object> checks = new java.util.ArrayList<>();
+        for (int n = 0; n < 30; n++) {
+            checks.add(Json.parse("{\"status\":\"ok\",\"checkedAt\":\"2026-10-13T08:00:00Z\",\"httpStatus\":200,\"errorCode\":null,\"fingerprint\":\"k1\"}"));
+        }
+        Fakes f = new Fakes(checks, Json.parse("{\"status\":202}"));
+        InstallationReporter reporter = configured(new LinkedHashMap<>(CONFIG), f).reportUrl(REPORT_URL).transport(f).build();
+        Map<String, String> keys = new LinkedHashMap<>();
+        keys.put(" ", "x");
+        keys.put("A ", "k1");
+        for (int n = 0; n < 25; n++) {
+            keys.put("Key " + n, "k1");
+        }
+        ReporterResult r = reporter.afterSettingsSaved(null, keys);
+        assertEquals(20, r.getChecks().size());
+        assertEquals("A", r.getChecks().keySet().iterator().next());
+        assertEquals(20, ((List<?>) map(f.bodies.get(0)).get("api_keys")).size());
     }
 
     @Test
@@ -386,6 +475,54 @@ class ReporterTest {
         Matcher m = Pattern.compile("<artifactId>supertext-plugin-health</artifactId>\\s*<version>([^<]+)</version>").matcher(pom);
         assertTrue(m.find());
         assertEquals(PluginHealthInfo.VERSION, m.group(1));
+    }
+
+    @Test
+    void sendsAtMost500ExtensionsAndCutsLongNames() {
+        List<Extension> listed = new ArrayList<>();
+        listed.add(new Extension("x".repeat(150), "v".repeat(80), null, "P".repeat(40)));
+        for (int n = 0; n < 520; n++) {
+            listed.add(new Extension("Plugin " + n, "1.0"));
+        }
+        List<Extension> out = InstallationReporter.normalizeExtensions(listed);
+        assertEquals(500, out.size());
+        assertEquals(new Extension("x".repeat(100), "v".repeat(50), null, "p".repeat(30)), out.get(0));
+        assertEquals(List.of(new Extension("Über", null, null, "thème")), InstallationReporter.normalizeExtensions(
+                java.util.Arrays.asList(new Extension("Über", null, null, "THÈME"), null, new Extension("über", null, null, "thème"))));
+    }
+
+    @Test
+    void sendsAtMost100LanguagesAndCutsLongCodes() {
+        List<LanguageMapping> listed = new ArrayList<>();
+        listed.add(new LanguageMapping("x".repeat(50), "y".repeat(50)));
+        for (int n = 0; n < 120; n++) {
+            listed.add(new LanguageMapping("l" + n, "de-CH"));
+        }
+        List<LanguageMapping> out = InstallationReporter.normalizeLanguages(listed);
+        assertEquals(100, out.size());
+        assertEquals(new LanguageMapping("x".repeat(35), "y".repeat(35)), out.get(0));
+        assertEquals(List.of(new LanguageMapping("Ü", null)), InstallationReporter.normalizeLanguages(
+                java.util.Arrays.asList(new LanguageMapping("Ü", "  "), null, new LanguageMapping("ü", "de"))));
+    }
+
+    @Test
+    void aThrowingLanguagesFunctionLeavesTheMappingOut() {
+        Fakes f = new Fakes(null, map(Json.parse("{\"status\":202}")));
+        InstallationReporter reporter = configured(CONFIG, f).reportUrl(REPORT_URL).transport(f).languages(() -> {
+            throw new IllegalStateException("boom");
+        }).build();
+        assertTrue(reporter.reportCheck(null).isSent());
+        assertFalse(map(f.bodies.get(0)).containsKey("languages"));
+    }
+
+    @Test
+    void aThrowingExtensionsFunctionLeavesTheListOut() {
+        Fakes f = new Fakes(null, map(Json.parse("{\"status\":202}")));
+        InstallationReporter reporter = configured(CONFIG, f).reportUrl(REPORT_URL).transport(f).extensions(() -> {
+            throw new IllegalStateException("boom");
+        }).build();
+        assertTrue(reporter.reportCheck(null).isSent());
+        assertFalse(map(f.bodies.get(0)).containsKey("extensions"));
     }
 
     @Test

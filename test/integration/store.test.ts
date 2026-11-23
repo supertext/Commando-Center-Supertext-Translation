@@ -110,12 +110,161 @@ describe('report endpoint and store', () => {
   it('rejects non-JSON, oversized bodies and floods', async () => {
     expect((await post('not json', { 'x-forwarded-for': '198.51.100.9' })).status).toBe(400);
     expect((await post(base, { 'content-type': 'text/plain', 'x-forwarded-for': '198.51.100.9' })).status).toBe(415);
-    const big = { ...base, padding: 'x'.repeat(9000) };
+    const big = { ...base, padding: 'x'.repeat(70_000) };
     expect((await post(big, { 'x-forwarded-for': '198.51.100.9' })).status).toBe(413);
     const statuses: number[] = [];
     for (let k = 0; k < 62; k++) statuses.push((await post(base, { 'x-forwarded-for': '198.51.100.10' })).status);
     expect(statuses.slice(0, 60).every((s) => s === 202)).toBe(true);
     expect(statuses.at(-1)).toBe(429);
+  });
+
+  describe('named API keys', () => {
+    const site = { ...base, site_url: 'https://wp.example.ch', plugin: { name: 'supertext-wordpress-polylang', version: '2.1.0' }, system: { name: 'WordPress' } };
+    const ip = { 'x-forwarded-for': '198.51.100.30' };
+    const find = async () => (await store.listInstallations({ q: 'wp.example.ch' }))[0];
+    const t1 = new Date(Date.now() - 120_000).toISOString();
+    const t2 = new Date(Date.now() - 60_000).toISOString();
+
+    it('stores every key and the worst status as the summary', async () => {
+      await post(
+        {
+          ...site,
+          event: 'settings_saved',
+          api_keys: [
+            { name: 'AI translation', configured: true, check: { status: 'ok', checked_at: t1, http_status: 200 } },
+            { name: 'Professional orders', configured: true, check: { status: 'invalid', checked_at: t1, http_status: 401 } },
+          ],
+        },
+        ip,
+      );
+      const i = await find();
+      expect(i.api_key_status).toBe('invalid');
+      expect(i.api_key_configured).toBe(true);
+      expect(i.api_keys?.map((k) => [k.name, k.status])).toEqual([
+        ['AI translation', 'ok'],
+        ['Professional orders', 'invalid'],
+      ]);
+      expect((await store.listInstallations({ keyStatus: 'problem' })).some((x) => x.id === i.id)).toBe(true);
+    });
+
+    it('keeps a newer stored check per key and records the change', async () => {
+      await post(
+        {
+          ...site,
+          event: 'api_key_check',
+          api_keys: [
+            { name: 'AI translation', configured: true },
+            { name: 'Professional orders', configured: true, check: { status: 'ok', checked_at: t2, http_status: 200 } },
+          ],
+        },
+        ip,
+      );
+      const i = await find();
+      expect(i.api_keys?.map((k) => [k.name, k.status])).toEqual([
+        ['AI translation', 'ok'],
+        ['Professional orders', 'ok'],
+      ]);
+      expect(i.api_key_status).toBe('ok');
+      const [last] = await store.installationHistory(i.id);
+      expect(last.changed).toBe(true);
+      expect(last.api_keys?.map((k) => k.status)).toEqual([null, 'ok']);
+    });
+  });
+
+  describe('installed plugins (extensions)', () => {
+    const site = { ...base, site_url: 'https://plugins.example.ch', plugin: { name: 'supertext-wordpress-polylang', version: '2.1.0' }, system: { name: 'WordPress' } };
+    const ip = { 'x-forwarded-for': '198.51.100.31' };
+    const find = async () => (await store.listInstallations({ q: 'plugins.example.ch' }))[0];
+
+    it('stores the list, keeps it on reports without one and finds sites by plugin name', async () => {
+      await post({ ...site, event: 'installed' }, ip);
+      expect((await find()).extensions).toBeNull();
+      const list = [
+        { name: 'Polylang Pro', version: '3.7.2', active: true, type: 'plugin' },
+        { name: 'Very Rare Plugin', version: '1.0', active: false, type: 'plugin' },
+      ];
+      await post({ ...site, event: 'extensions', extensions: list }, ip);
+      let i = await find();
+      expect(i.extensions).toEqual(list);
+      expect(i.extensions_at).toBeInstanceOf(Date);
+      expect(i.last_event).toBe('extensions');
+      let history = await store.installationHistory(i.id);
+      expect(history[0].extensions).toEqual(list);
+      expect(history[0].changed).toBe(true);
+
+      await post({ ...site, event: 'settings_saved' }, ip);
+      i = await find();
+      expect(i.extensions).toEqual(list);
+      history = await store.installationHistory(i.id);
+      expect(history[0].extensions).toBeNull();
+      expect(history[0].changed).toBe(false);
+
+      // The same list again (another order): no change.
+      await post({ ...site, event: 'extensions', extensions: [...list].reverse() }, ip);
+      expect((await store.installationHistory(i.id))[0].changed).toBe(false);
+
+      expect((await store.listInstallations({ q: 'very rare' })).map((x) => x.id)).toEqual([i.id]);
+    });
+  });
+
+  describe('test installations', () => {
+    const ip = { 'x-forwarded-for': '198.51.100.33' };
+
+    it('staff can mark a site as test or as real, overriding the automatic filter', async () => {
+      await post({ ...base, site_url: 'https://staging.override.example.ch', event: 'installed' }, ip);
+      await post({ ...base, site_url: 'http://override.ddev.site', event: 'installed' }, ip);
+      const [staging] = await store.listInstallations({ q: 'staging.override' });
+      const [ddev] = await store.listInstallations({ q: 'override.ddev.site', includeLocal: true });
+      expect(store.isTestInstallation(staging)).toBe(false);
+      expect(store.isTestInstallation(ddev)).toBe(true);
+      expect(await store.listInstallations({ q: 'override.ddev.site' })).toEqual([]);
+
+      await store.updateInstallation(staging.id, null, '', true);
+      await store.updateInstallation(ddev.id, null, 'Shared demo', false);
+      expect(await store.listInstallations({ q: 'staging.override' })).toEqual([]);
+      expect((await store.listInstallations({ q: 'staging.override', includeLocal: true }))[0]).toMatchObject({ test_override: true });
+      expect((await store.listInstallations({ q: 'override.ddev.site' }))[0]).toMatchObject({ local: true, test_override: false, notes: 'Shared demo' });
+
+      // A new report keeps the choice.
+      await post({ ...base, site_url: 'https://staging.override.example.ch', event: 'settings_saved' }, ip);
+      expect((await store.getInstallation(staging.id))?.test_override).toBe(true);
+
+      // Back to automatic.
+      await store.updateInstallation(ddev.id, null, '', null);
+      expect(await store.listInstallations({ q: 'override.ddev.site' })).toEqual([]);
+    });
+  });
+
+  describe('language mapping', () => {
+    const site = { ...base, site_url: 'https://languages.example.ch', plugin: { name: 'supertext-wordpress-polylang', version: '2.2.0' }, system: { name: 'WordPress' } };
+    const ip = { 'x-forwarded-for': '198.51.100.32' };
+    const find = async () => (await store.listInstallations({ q: 'languages.example.ch' }))[0];
+
+    it('stores the mapping, keeps it on reports without one and finds sites by language', async () => {
+      await post({ ...site, event: 'installed' }, ip);
+      expect((await find()).languages).toBeNull();
+      const list = [
+        { code: 'de_CH', supertext: 'de-CH' },
+        { code: 'en_AU', supertext: null },
+      ];
+      await post({ ...site, event: 'languages', languages: list }, ip);
+      let i = await find();
+      expect(i.languages).toEqual(list);
+      expect(i.languages_at).toBeInstanceOf(Date);
+      expect((await store.installationHistory(i.id))[0]).toMatchObject({ event: 'languages', languages: list, changed: true });
+
+      await post({ ...site, event: 'settings_saved' }, ip);
+      i = await find();
+      expect(i.languages).toEqual(list);
+      expect((await store.installationHistory(i.id))[0]).toMatchObject({ languages: null, changed: false });
+
+      await post({ ...site, event: 'languages', languages: [...list].reverse() }, ip);
+      expect((await store.installationHistory(i.id))[0].changed).toBe(false);
+      await post({ ...site, event: 'languages', languages: [list[0], { code: 'en_AU', supertext: 'en-GB' }] }, ip);
+      expect((await store.installationHistory(i.id))[0].changed).toBe(true);
+
+      expect((await store.listInstallations({ q: 'en_AU' })).map((x) => x.id)).toEqual([i.id]);
+    });
   });
 
   describe('API key check', () => {
@@ -159,6 +308,7 @@ describe('report endpoint and store', () => {
     it('filters by key status', async () => {
       // The spec examples posted earlier add a rejected key (www.example.ch) and an unreachable check (cms.example.org).
       expect((await store.listInstallations({ keyStatus: 'problem' })).map((i) => `${i.site_url} ${i.api_key_status}`).sort()).toEqual([
+        'https://blog.example.ch invalid',
         'https://cms.example.org unreachable',
         'https://keys.example.ch invalid',
         'https://www.example.ch invalid',
@@ -293,5 +443,57 @@ describe('report endpoint and store', () => {
     await store.deleteInstallation(i.id);
     expect(await store.getInstallation(i.id)).toBeNull();
     expect(await store.installationHistory(i.id)).toEqual([]);
+  });
+});
+
+describe('statistics API', () => {
+  const TOKEN = 's'.repeat(40);
+  let stats: typeof import('../../src/app/api/v1/stats/route');
+  const get = (auth: string | null, query = '', ip = '198.51.100.40') =>
+    stats.GET(new Request(`http://center.test/api/v1/stats${query}`, { headers: { 'x-forwarded-for': ip, ...(auth ? { authorization: auth } : {}) } }));
+
+  beforeAll(async () => {
+    process.env.GITHUB_API_URL = 'http://127.0.0.1:9'; // no GitHub from tests: latest release unknown
+    stats = await import('../../src/app/api/v1/stats/route');
+  });
+  afterAll(() => {
+    delete process.env.COMMANDO_STATS_TOKEN;
+  });
+
+  it('is off while no token is configured', async () => {
+    delete process.env.COMMANDO_STATS_TOKEN;
+    expect((await get(`Bearer ${TOKEN}`)).status).toBe(404);
+  });
+
+  it('needs the token, then returns totals without sites', async () => {
+    process.env.COMMANDO_STATS_TOKEN = TOKEN;
+    const denied = await get(null);
+    expect(denied.status).toBe(401);
+    expect(denied.headers.get('www-authenticate')).toBe('Bearer');
+    expect((await get('Bearer wrong')).status).toBe(401);
+
+    const res = await get(`Bearer ${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const body = await res.json();
+    const all = await store.listInstallations();
+    expect(body.totals.installations).toBe(all.length);
+    const typo3 = all.filter((i) => i.plugin === 'Typo3-Supertext-Translation').length;
+    expect(body.plugins.find((p: { plugin: string }) => p.plugin === 'Typo3-Supertext-Translation')).toMatchObject({ installations: typo3 });
+    expect(JSON.stringify(body)).not.toContain('kunde.ch');
+    const deCh = all.filter((i) => i.languages?.some((l) => l.supertext === 'de-CH')).length;
+    expect(deCh).toBeGreaterThan(0);
+    expect(body.totals.languages.supertext).toContainEqual({ value: 'de-CH', installations: deCh });
+
+    const withLocal = await (await get(`Bearer ${TOKEN}`, '?local=1')).json();
+    expect(withLocal.totals.installations).toBe((await store.listInstallations({ includeLocal: true })).length);
+  });
+
+  it('stops guessing after 10 wrong tokens a minute', async () => {
+    process.env.COMMANDO_STATS_TOKEN = TOKEN;
+    const statuses: number[] = [];
+    for (let k = 0; k < 11; k++) statuses.push((await get('Bearer nope', '', '198.51.100.41')).status);
+    expect(statuses.slice(0, 10).every((s) => s === 401)).toBe(true);
+    expect(statuses.at(-1)).toBe(429);
   });
 });

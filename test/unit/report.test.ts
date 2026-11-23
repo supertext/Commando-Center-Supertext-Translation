@@ -35,6 +35,9 @@ describe('parseReport (spec/report-examples.json)', () => {
         apiKeyConfigured: true,
         apiKeyCheck: { status: 'ok', checkedAt: new Date('2026-10-13T07:15:00Z'), httpStatus: 200, errorCode: null },
         callbackUrl: 'https://www.example.ch/supertext/ping',
+        apiKeys: null,
+        extensions: null,
+        languages: null,
       },
     });
   });
@@ -52,8 +55,38 @@ describe('api_key_check (spec/report-examples.json → stored)', () => {
       const r = parseReport(ex.body, NOW);
       expect(r.ok).toBe(true);
       if (!r.ok) return;
-      const stored = (ex as { stored: { api_key_check: Record<string, unknown> | null; callback_url?: string | null } }).stored;
+      const stored = (
+        ex as {
+          stored: {
+            api_key_check: Record<string, unknown> | null;
+            callback_url?: string | null;
+            api_key_configured?: boolean;
+            api_keys?: Record<string, unknown>[];
+            extensions?: Record<string, unknown>[];
+            languages?: Record<string, unknown>[];
+          };
+        }
+      ).stored;
       if ('callback_url' in stored) expect(r.report.callbackUrl).toBe(stored.callback_url);
+      if ('api_key_configured' in stored) expect(r.report.apiKeyConfigured).toBe(stored.api_key_configured);
+      if ('extensions' in stored) expect(r.report.extensions).toEqual(stored.extensions);
+      else expect(r.report.extensions).toBeNull();
+      if ('languages' in stored) expect(r.report.languages).toEqual(stored.languages);
+      else expect(r.report.languages).toBeNull();
+      if ('api_keys' in stored) {
+        expect(
+          r.report.apiKeys?.map((k) => ({
+            name: k.name,
+            configured: k.configured,
+            status: k.check?.status ?? null,
+            checked_at: k.check?.checkedAt?.toISOString() ?? null,
+            http_status: k.check?.httpStatus ?? null,
+            error_code: k.check?.errorCode ?? null,
+          })),
+        ).toEqual(stored.api_keys);
+      } else {
+        expect(r.report.apiKeys).toBeNull();
+      }
       const want = stored.api_key_check;
       const got = r.report.apiKeyCheck;
       if (want === null) {
@@ -82,5 +115,41 @@ describe('api_key_check (spec/report-examples.json → stored)', () => {
 
   it('keeps unknown statuses for forward compatibility', () => {
     expect(parseApiKeyCheck({ status: 'quota_exceeded' })?.status).toBe('quota_exceeded');
+  });
+});
+
+describe('api_keys', () => {
+  it('keeps at most 20 keys and the worst check as the summary', async () => {
+    const { parseApiKeys, worstCheck } = await import('../../src/lib/report');
+    const many = Array.from({ length: 25 }, (_, n) => ({ name: `Key ${n}`, configured: true }));
+    expect(parseApiKeys(many)).toHaveLength(20);
+    expect(parseApiKeys('nope')).toBeNull();
+    const c = (status: string, t: string) => ({ check: { status, checkedAt: new Date(t), httpStatus: null, errorCode: null } });
+    expect(worstCheck([c('ok', '2026-01-02'), c('unreachable', '2026-01-01'), c('invalid', '2026-01-01')])?.status).toBe('invalid');
+    expect(worstCheck([c('ok', '2026-01-01'), c('ok', '2026-01-03')])?.checkedAt?.toISOString()).toBe('2026-01-03T00:00:00.000Z');
+    expect(worstCheck([c('ok', '2026-01-01'), c('weird', '2026-01-01')])?.status).toBe('weird');
+    expect(worstCheck([{ check: null }])).toBeNull();
+  });
+});
+
+describe('extensions', () => {
+  const base = { schema: 1, event: 'extensions', site_url: 'https://www.example.ch', plugin: { name: 'X', version: '1.0.0' }, system: { name: 'WordPress' } };
+
+  it('treats a value that is not a list as absent', () => {
+    for (const extensions of [null, 'Polylang', { name: 'Polylang' }]) {
+      const r = parseReport({ ...base, extensions });
+      expect(r.ok && r.report.extensions).toBeNull();
+    }
+  });
+
+  it('keeps at most 500 entries', () => {
+    const extensions = Array.from({ length: 520 }, (_, n) => ({ name: `Plugin ${n}`, version: '1.0' }));
+    const r = parseReport({ ...base, extensions });
+    expect(r.ok && r.report.extensions?.length).toBe(500);
+  });
+
+  it('keeps a plugin and a theme of the same name apart', () => {
+    const r = parseReport({ ...base, extensions: [{ name: 'Astra', type: 'plugin' }, { name: 'Astra', type: 'theme' }] });
+    expect(r.ok && r.report.extensions?.map((e) => e.type)).toEqual(['plugin', 'theme']);
   });
 });

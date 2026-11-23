@@ -1,6 +1,6 @@
 # Supertext Plugin Health — PHP
 
-The PHP version of [Supertext Plugin Health](../README.md): version reports to the Supertext Commando Center, the result of the plugin's API key check, and the answer of its ping endpoint. Namespace `Supertext\PluginHealth`, Composer package `supertext/plugin-health`.
+The PHP version of [Supertext Plugin Health](../README.md): version reports to the Supertext Plugin Health dashboard, the result of the plugin's API key check, and the answer of its ping endpoint. Namespace `Supertext\PluginHealth`, Composer package `supertext/plugin-health`.
 
 - PHP 8.1 or newer, no dependencies (ext-json; ext-curl only for the built-in `CurlTransport`, not when the plugin passes its own `Http\HttpTransport`).
 - Plugins bundle a copy of `src/` (renamed into the plugin's namespace) with `scripts/vendor-plugin-health.sh`; see the [main README](../README.md#bundling-it-in-a-plugin). The version is `PluginHealth::PLUGIN_HEALTH_VERSION`, shared with the other languages.
@@ -46,4 +46,4 @@ vendor/bin/phpunit
 vendor/bin/phpstan analyse
 ```
 
-The tests run `../spec/reporter.json` and the center's `../../spec/` (ping cases, report schema), and check that the version matches `../typescript/package.json`.
+The tests run `../spec/reporter.json` and the dashboard's `../../spec/` (ping cases, report schema), and check that the version matches `../typescript/package.json`.

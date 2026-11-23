@@ -1,41 +1,51 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import Link from 'next/link';
 import './globals.css';
-import { isSignedIn } from '@/lib/session';
+import MainNav from '@/components/main-nav';
+import { currentUser } from '@/lib/session';
 import { APP_REPO, APP_VERSION, appReleaseUrl } from '@/lib/version';
 import { logout } from './actions';
 
 export const metadata: Metadata = {
-  title: 'Supertext Commando Center',
+  title: 'Plugin Health | Supertext',
   description: 'Which Supertext plugin and system versions each installation runs.',
   robots: { index: false, follow: false },
+  icons: { icon: { url: '/favicon.svg', type: 'image/svg+xml' } },
 };
 
+export const viewport: Viewport = { themeColor: '#003230' };
+
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const signedIn = await isSignedIn();
+  const user = await currentUser();
+  const signedIn = user !== null;
   const release = appReleaseUrl();
   return (
     <html lang="en">
+      <head>
+        <link rel="preload" href="/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossOrigin="" />
+      </head>
       <body>
-        {signedIn && (
-          <header className="top">
-            <Link href="/" className="logo">
-              <span className="dot" aria-hidden="true" />
-              Commando Center
-            </Link>
-            <nav aria-label="Main">
-              <Link href="/">Installations</Link>
-              <Link href="/clients">Clients</Link>
-            </nav>
-            <span className="spacer" />
+        <header className="top">
+          <Link href="/" className="brand" aria-label="Supertext Plugin Health">
+            <img src="/supertext-logo.svg" alt="Supertext" width={122} height={22} />
+            <span className="for">Plugin Health</span>
+          </Link>
+          {signedIn && <MainNav />}
+          <span className="spacer" />
+          {user && (user.name || user.email) && (
+            <span className="who" title={user.email}>
+              {user.name ?? user.email}
+            </span>
+          )}
+          {signedIn && (
             <form action={logout}>
               <button type="submit">Sign out</button>
             </form>
-          </header>
-        )}
+          )}
+        </header>
         <main>{children}</main>
         <footer className="bottom">
-          Supertext Commando Center{' '}
+          Supertext Plugin Health{' '}
           {release ? (
             <a className="link" href={release} target="_blank" rel="noopener">
               v{APP_VERSION}

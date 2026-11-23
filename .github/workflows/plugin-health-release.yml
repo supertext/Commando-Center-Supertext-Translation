@@ -55,9 +55,11 @@ jobs:
             echo "## What's in $version"
             cat section.md
           } > notes.md
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "release=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "release=true"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create the release
         if: steps.version.outputs.release == 'true'

@@ -3,40 +3,31 @@
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { SESSION_COOKIE, checkPassword, createSession } from '@/lib/auth';
+import { SESSION_COOKIE, readSession } from '@/lib/auth';
 import { requireAuth } from '@/lib/session';
-import { RateLimiter, clientIp } from '@/lib/rate-limit';
+import { discover, endSessionUrl, oidcConfig, publicBaseUrl } from '@/lib/oidc';
+import { ID_TOKEN_COOKIE } from '@/lib/oidc-cookies';
 import * as store from '@/lib/db';
 import { pingInstallation } from '@/lib/pinger';
 
-const loginAttempts = new RateLimiter(10, 15 * 60_000);
-
-export interface LoginState {
-  error?: string;
-}
-
-export async function login(_prev: LoginState, form: FormData): Promise<LoginState> {
-  const h = await headers();
-  if (!loginAttempts.take(clientIp(h))) return { error: 'Too many attempts. Wait 15 minutes and try again.' };
-  const pw = String(form.get('password') ?? '');
-  if (!checkPassword(pw)) return { error: 'Wrong password.' };
-  const session = createSession();
-  if (!session) return { error: 'Login is not configured (COMMANDO_PASSWORD missing or shorter than 12 characters).' };
-  const jar = await cookies();
-  jar.set(SESSION_COOKIE, session.value, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    expires: session.expires,
-  });
-  redirect('/');
-}
-
+/** Signs out here and at the Person Service. */
 export async function logout(): Promise<void> {
   const jar = await cookies();
+  const user = readSession(jar.get(SESSION_COOKIE)?.value);
+  const idToken = jar.get(ID_TOKEN_COOKIE)?.value;
   jar.delete(SESSION_COOKIE);
-  redirect('/login');
+  jar.delete(ID_TOKEN_COOKIE);
+  const cfg = oidcConfig();
+  let target: string | null = null;
+  if (user && cfg) {
+    try {
+      const base = publicBaseUrl(await headers());
+      target = endSessionUrl(cfg, await discover(cfg), `${base}/login`, idToken);
+    } catch {
+      target = null; // signed out here; the Person Service session ends on its own
+    }
+  }
+  redirect(target ?? '/login');
 }
 
 function id(form: FormData, field = 'id'): number {
@@ -58,7 +49,9 @@ export async function saveInstallation(form: FormData): Promise<void> {
   let clientId: number | null = null;
   if (newName) clientId = await store.ensureClient(newName);
   else if (choice && choice !== 'none') clientId = id(form, 'client');
-  await store.updateInstallation(installationId, clientId, clean(form.get('notes'), 5000));
+  const test = String(form.get('test') ?? 'auto');
+  const testOverride = test === 'test' ? true : test === 'real' ? false : null;
+  await store.updateInstallation(installationId, clientId, clean(form.get('notes'), 5000), testOverride);
   revalidatePath('/', 'layout');
   redirect(`/installations/${installationId}?saved=1`);
 }

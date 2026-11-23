@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { requireAuth } from '@/lib/session';
 import { getClient, listInstallations } from '@/lib/db';
 import { latestReleases } from '@/lib/releases';
-import { CallbackStatus, KeyStatus, NameVersion, PluginVersion, ago, formatDate } from '@/components/ui';
+import { CallbackStatus, KeyStatus, NameVersion, PluginVersion, ago, formatDate, TestBadge } from '@/components/ui';
 import ConfirmButton from '@/components/confirm-button';
 import { removeClient, saveClient } from '../../actions';
 
@@ -63,7 +63,7 @@ export default async function ClientPage({
                     <Link className="link" href={`/installations/${i.id}`}>
                       {i.site_url.replace(/^https?:\/\//, '')}
                     </Link>{' '}
-                    {i.local && <span className="badge local">local</span>}
+                    <TestBadge local={i.local} test_override={i.test_override} />
                   </td>
                   <td>{i.plugin.replace(/-Supertext-Translation$/, '')}</td>
                   <td>

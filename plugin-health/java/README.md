@@ -1,6 +1,6 @@
 # Supertext Plugin Health for Java
 
-Java version of [Supertext Plugin Health](../README.md): version reports to the Supertext Commando Center, the API key check result and the plugin's ping endpoint. Package `com.supertext.pluginhealth`, Maven `com.supertext:supertext-plugin-health`. Java 17 or later, no runtime dependencies (only the JDK's `java.net.http`).
+Java version of [Supertext Plugin Health](../README.md): version reports to the Supertext Plugin Health dashboard, the API key check result and the plugin's ping endpoint. Package `com.supertext.pluginhealth`, Maven `com.supertext:supertext-plugin-health`. Java 17 or later, no runtime dependencies (only the JDK's `java.net.http`).
 
 What a plugin does, the state it stores and the defaults are in the [package README](../README.md). In Java:
 
@@ -34,4 +34,4 @@ Plugins bundle a copy of `src/main/java/com/supertext/pluginhealth/` renamed int
 mvn -B verify
 ```
 
-The tests (JUnit 5) read `../spec/reporter.json` and the center's `../../spec/callback-vectors.json` and `../../spec/report-v1.schema.json`, so run them from this folder inside the repository. They use a fake key checker, a fake transport and a fixed clock. Nothing goes over the network.
+The tests (JUnit 5) read `../spec/reporter.json` and the dashboard's `../../spec/callback-vectors.json` and `../../spec/report-v1.schema.json`, so run them from this folder inside the repository. They use a fake key checker, a fake transport and a fixed clock. Nothing goes over the network.

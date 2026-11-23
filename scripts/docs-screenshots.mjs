@@ -3,16 +3,20 @@
 //   1. Start the center against a fresh database, pointing GitHub release lookups and the
 //      sample sites' ping endpoints at the stand-in this script starts on port 8766
 //      (COMMANDO_PING_* are test-only switches, never set them in production):
-//        GITHUB_API_URL=http://127.0.0.1:8766 COMMANDO_PING_ALLOW_PRIVATE=1 \
+//        GITHUB_API_URL=http://127.0.0.1:8766 COMMANDO_PROXY_URL=http://127.0.0.1:8766 COMMANDO_PROXY_TOKEN=docs-proxy-token \
+//        COMMANDO_PING_ALLOW_PRIVATE=1 \
 //        COMMANDO_PING_HOSTS="$(node scripts/docs-screenshots.mjs --ping-hosts)" \
-//        COMMANDO_DB_NAME=commando_docs COMMANDO_PASSWORD=… npm run dev
-//   2. COMMANDO_URL=http://127.0.0.1:3000 COMMANDO_PASSWORD=… npm run docs:screenshots
+//        COMMANDO_OIDC_ISSUER=http://127.0.0.1:8766/person COMMANDO_OIDC_CLIENT_ID=Supertext.PluginHealth.Admin.UI \
+//        COMMANDO_SESSION_SECRET=<32+ characters> COMMANDO_DB_NAME=commando_docs npm run dev
+//   2. COMMANDO_URL=http://127.0.0.1:3000 npm run docs:screenshots
 //
-// It sends sample reports for invented sites (no customer data), maps two of them to
+// It signs in through the stand-in Person Service (scripts/oidc-stand-in.mjs) as the invented
+// Ada Muster, sends sample reports for invented sites (no customer data), maps two of them to
 // invented clients through the UI, and saves cropped 1× PNGs.
 import http from 'node:http';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
+import { handleOidc } from './oidc-stand-in.mjs';
 
 // The sample sites' ping endpoints all go to the stand-in, except one that "is behind a firewall".
 const PING_HOSTS = {
@@ -28,20 +32,30 @@ if (process.argv.includes('--ping-hosts')) {
 }
 
 const BASE = (process.env.COMMANDO_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
-const PASSWORD = process.env.COMMANDO_PASSWORD;
-if (!PASSWORD) throw new Error('Set COMMANDO_PASSWORD (the one the center runs with).');
 const OUT = new URL('../docs/images/', import.meta.url);
 
-// Stand-in for the GitHub releases API: the latest release per plugin.
+// Stand-in for the GitHub releases API: the latest release per repository.
 const RELEASES = {
-  'supertext-wordpress-polylang': '2.1.0',
+  'Wordpress-Polylang-Supertext-Translation': '2.1.0',
   'Typo3-Supertext-Translation': '0.4.0',
   'Magento-Supertext-Translation': '0.3.0',
   'Strapi-Supertext-Translation': '0.2.0',
   'Contao-Supertext-Translation': '0.3.1',
 };
+const PROXY_USAGE = {
+  schema: 1,
+  generatedAt: new Date().toISOString(),
+  integrations: [
+    { tenant: 'a1'.repeat(32), tenantLabel: 'Alpenblick Hotels AG', plugin: 'supertext-wordpress-polylang', pluginVersion: '2.1.0', sdk: 'php', keyChecks: 3, uploads: 128, memoryAnswers: 74, firstSeenAt: new Date(Date.now() - 9 * 86400e3).toISOString(), lastSeenAt: new Date(Date.now() - 12 * 60e3).toISOString() },
+    { tenant: 'b2'.repeat(32), tenantLabel: 'Bergbahnen Muster', plugin: 'Typo3-Supertext-Translation', pluginVersion: '0.3.0', sdk: 'php', keyChecks: 1, uploads: 41, memoryAnswers: 9, firstSeenAt: new Date(Date.now() - 4 * 86400e3).toISOString(), lastSeenAt: new Date(Date.now() - 3 * 3600e3).toISOString() },
+    { tenant: 'c3'.repeat(32), tenantLabel: '', plugin: 'Strapi-Supertext-Translation', pluginVersion: '0.2.0', sdk: 'typescript', keyChecks: 2, uploads: 6, memoryAnswers: 0, firstSeenAt: new Date(Date.now() - 86400e3).toISOString(), lastSeenAt: new Date(Date.now() - 86400e3 + 600e3).toISOString() },
+  ],
+};
+
 const standIn = http
-  .createServer((req, res) => {
+  .createServer(async (req, res) => {
+    // Stand-in Person Service for signing in (OIDC).
+    if (await handleOidc(req, res, 'http://127.0.0.1:8766')) return;
     // Ping endpoints of the sample sites, by Host header.
     const host = (req.headers.host ?? '').split(':')[0];
     if (host !== '127.0.0.1' && host in PING_HOSTS) {
@@ -57,6 +71,12 @@ const standIn = http
       const plugin = host.startsWith('www.alpenblick') ? 'supertext-wordpress-polylang' : 'Typo3-Supertext-Translation';
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify({ ok: true, plugin, challenge: u.searchParams.get('challenge') }));
+    }
+    // Stand-in for the translation proxy's usage API (invented sample data).
+    if (req.url === '/api/usage') {
+      const ok = req.headers.authorization === 'Bearer docs-proxy-token';
+      res.writeHead(ok ? 200 : 401, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(ok ? PROXY_USAGE : { error: 'unauthorized' }));
     }
     const m = req.url?.match(/^\/repos\/[^/]+\/([^/]+)\/releases/);
     const v = m && RELEASES[decodeURIComponent(m[1])];
@@ -88,12 +108,77 @@ const wp = (system, plugin, event, extra = {}) => ({
   ...extra,
 });
 // Each sample's API key check result, so the screenshots show every status:
-// ok, rejected (wrong key pasted, then fixed; a revoked key), unreachable, no key, not checked (older plugin).
+// ok, rejected (wrong key pasted, then fixed; a revoked key), unreachable, no key, not checked (older plugin),
+// and two named keys (WordPress).
 const samples = [
   wp('6.8.3', '2.0.0', 'installed', check('invalid', 9, { http_status: 401, error_code: 'INVALID_API_KEY' })),
   wp('6.8.3', '2.0.0', 'settings_saved', check('ok', 8, { http_status: 200 })),
   wp('6.9.0', '2.0.0', 'upgraded'),
   wp('6.9.0', '2.1.0', 'upgraded'),
+  // Plugin Health 0.2: the WordPress plugin reports its two keys by name.
+  wp('6.9.0', '2.1.0', 'settings_saved', {
+    api_keys: [
+      { name: 'AI translation', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+      { name: 'Professional orders', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+    ],
+  }),
+  // Plugin Health 0.3: the administrator sends the installed plugins (button), later again after updates.
+  wp('6.9.0', '2.1.0', 'extensions', {
+    api_keys: [
+      { name: 'AI translation', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+      { name: 'Professional orders', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+    ],
+    extensions: [
+      { name: 'Polylang Pro', version: '3.6.4', active: true, type: 'plugin' },
+      { name: 'Yoast SEO', version: '24.0', active: true, type: 'plugin' },
+      { name: 'WP Rocket', version: '3.17', active: true, type: 'plugin' },
+      { name: 'WPML Multilingual CMS', version: '4.6.13', active: false, type: 'plugin' },
+      { name: 'Akismet Anti-spam', version: '5.3', active: false, type: 'plugin' },
+      { name: 'Twenty Twenty-Five', version: '1.2', active: true, type: 'theme' },
+    ],
+  }),
+  wp('6.9.0', '2.1.0', 'extensions', {
+    api_keys: [
+      { name: 'AI translation', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+      { name: 'Professional orders', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+    ],
+    extensions: [
+      { name: 'Polylang Pro', version: '3.7.2', active: true, type: 'plugin' },
+      { name: 'Yoast SEO', version: '24.1', active: true, type: 'plugin' },
+      { name: 'WP Rocket', version: '3.17', active: true, type: 'plugin' },
+      { name: 'Akismet Anti-spam', version: '5.3', active: true, type: 'plugin' },
+      { name: 'Redirection', version: '5.5.1', active: true, type: 'plugin' },
+      { name: 'Twenty Twenty-Five', version: '1.2', active: true, type: 'theme' },
+    ],
+  }),
+  // Plugin Health 0.4: the administrator sends the language mapping (button); en_IE was mapped later.
+  wp('6.9.0', '2.1.0', 'languages', {
+    api_keys: [
+      { name: 'AI translation', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+      { name: 'Professional orders', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+    ],
+    languages: [
+      { code: 'de_CH', supertext: 'de-CH' },
+      { code: 'fr_FR', supertext: 'fr-FR' },
+      { code: 'it_IT', supertext: 'it-IT' },
+      { code: 'en_GB', supertext: 'en-GB' },
+      { code: 'en_IE', supertext: null },
+    ],
+  }),
+  wp('6.9.0', '2.1.0', 'languages', {
+    api_keys: [
+      { name: 'AI translation', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+      { name: 'Professional orders', configured: true, check: { status: 'ok', checked_at: ago(7), http_status: 200 } },
+    ],
+    languages: [
+      { code: 'de_CH', supertext: 'de-CH' },
+      { code: 'fr_FR', supertext: 'fr-FR' },
+      { code: 'it_IT', supertext: 'it-IT' },
+      { code: 'en_GB', supertext: 'en-GB' },
+      { code: 'en_IE', supertext: 'en-GB' },
+      { code: 'rm', supertext: null },
+    ],
+  }),
   { event: 'settings_saved', site_url: 'https://staging.alpenblick-hotels.example.ch', plugin: { name: 'supertext-wordpress-polylang', version: '2.0.0' }, system: { name: 'WordPress', version: '6.8.3' }, runtime: { name: 'PHP', version: '8.2.20' }, api_key_configured: true, ...check('unreachable', 6), ...ping('http://staging.alpenblick-hotels.example.ch/wp-json/supertext/v1/ping') },
   { event: 'upgraded', site_url: 'https://www.bergbahnen-muster.example.ch/', plugin: { name: 'Typo3-Supertext-Translation', version: '0.3.0' }, system: { name: 'TYPO3', version: '13.4.2' }, runtime: { name: 'PHP', version: '8.3.12' }, sdk_version: '0.2.0', api_key_configured: true, ...check('ok', 5, { http_status: 200 }), ...ping('http://www.bergbahnen-muster.example.ch/?eID=supertext_ping') },
   { event: 'installed', site_url: 'https://shop.velo-beispiel.example.com/de/', plugin: { name: 'Magento-Supertext-Translation', version: '0.3.0' }, system: { name: 'Magento', version: '2.4.8' }, runtime: { name: 'PHP', version: '8.4.1' }, api_key_configured: false, ...check('missing', 4), ...ping('http://shop.velo-beispiel.example.com/supertext/ping') },
@@ -110,8 +195,8 @@ const shot = async (name, opts = {}) => page.screenshot({ path: new URL(name, OU
 
 await page.goto(`${BASE}/login`);
 await shot('login.png', { clip: { x: 440, y: 60, width: 480, height: 300 } });
-await page.fill('input[name=password]', PASSWORD);
-await Promise.all([page.waitForURL(`${BASE}/`), page.click('button[type=submit]')]);
+await page.click('a:has-text("Sign in with Supertext")');
+await Promise.all([page.waitForURL(`${BASE}/`), page.click('button[value=ada]')]);
 
 // Map the two Alpenblick sites to one client (new client, then existing), the Bergbahnen site to another.
 async function mapTo(urlPart, client, isNew) {
@@ -145,15 +230,28 @@ await shot('installation.png', { fullPage: true });
 // Page coordinates (the redirect after Ping now scrolls to #callback).
 const [top, bottom] = await page.evaluate(() => {
   const y = (el) => el.getBoundingClientRect().top + window.scrollY;
-  const history = [...document.querySelectorAll('h2')].find((h) => h.textContent === 'History');
-  return [y(document.getElementById('callback')), y(history)];
+  return [y(document.getElementById('callback')), y(document.getElementById('languages'))];
 });
 await shot('installation-reachability.png', { fullPage: true, clip: { x: 0, y: top - 8, width: 1360, height: bottom - top } });
+const [extTop, extBottom] = await page.evaluate(() => {
+  const y = (el) => el.getBoundingClientRect().top + window.scrollY;
+  const history = [...document.querySelectorAll('h2')].find((h) => h.textContent === 'History');
+  return [y(document.getElementById('extensions')), y(history)];
+});
+await shot('installation-extensions.png', { fullPage: true, clip: { x: 0, y: extTop - 8, width: 1360, height: extBottom - extTop } });
+const [langTop, langBottom] = await page.evaluate(() => {
+  const y = (el) => el.getBoundingClientRect().top + window.scrollY;
+  return [y(document.getElementById('languages')), y(document.getElementById('extensions'))];
+});
+await shot('installation-languages.png', { fullPage: true, clip: { x: 0, y: langTop - 8, width: 1360, height: langBottom - langTop } });
 
 await page.goto(`${BASE}/clients`);
 await shot('clients.png', { clip: { x: 0, y: 0, width: 1360, height: 360 } });
 await Promise.all([page.waitForURL(/\/clients\/\d+$/), page.click('a:has-text("Alpenblick Hotels AG")')]);
 await shot('client.png', { fullPage: true });
+
+await page.goto(`${BASE}/proxy`);
+await shot('proxy.png', { clip: { x: 0, y: 0, width: 1360, height: 520 } });
 
 await browser.close();
 standIn.close();
