@@ -28,6 +28,7 @@ The dashboard was called *Commando Center* until November 2026. Technical names 
 | `src/lib/auth.ts`, `session.ts` | Signed session cookie, `requireAuth()`, `currentUser()` |
 | `src/lib/oidc.ts`, `oidc-cookies.ts`, `src/app/auth/{login,callback}/route.ts` | Sign-in with a Supertext account (OIDC): discovery, PKCE, ID token check, staff rule, sign-out at the Person Service |
 | `scripts/oidc-stand-in.mjs` | A stand-in Person Service for local development, the screenshots and the image check |
+| `src/proxy.ts`, `src/lib/csp.ts` | A fresh nonce and the Content-Security-Policy for every page (see *Code quality and security checks*) |
 | `src/lib/callback.ts` | The callback ping: URL check, address blocklist, the request itself |
 | `src/lib/pinger.ts` | When to ping (throttle, re-ping), stores the result |
 | `src/lib/releases.ts`, `semver.ts` | Latest GitHub release per plugin and version comparison |
@@ -406,6 +407,7 @@ Dependabot opens weekly pull requests (npm minor and patch grouped, GitHub Actio
 
 - **Checks** workflow (`.github/workflows/checks.yml`): [actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://docs.zizmor.sh/) lint the workflows on every push and pull request; dependency review fails a pull request that adds a package with a known vulnerability (moderate or worse). Actions are pinned to commit SHAs. Locally: `pip install actionlint-py zizmor`, then `actionlint` and `zizmor --offline .github/workflows`.
 - **Links** workflow (`.github/workflows/links.yml`): [lychee](https://lychee.cli.rs/) checks the links in all Markdown files weekly and when docs change on `main`; broken links open the issue "Broken links in the docs".
+- **Headers:** every page gets a Content-Security-Policy with a fresh nonce per request (`src/proxy.ts`, `src/lib/csp.ts`): scripts only with the nonce (Next.js puts it on its own scripts) or loaded by them (`'strict-dynamic'`), styles, fonts and images from the app (style attributes allowed for React's `style={…}`), no plugins, no other `<base>`, forms only to the app, no framing. That needs dynamic rendering, which every page has anyway (the layout reads the session). Sign-out still reaches the Person Service: the server action's redirect is a navigation, not a form submission. `next.config.ts` adds HSTS (a year), a `Permissions-Policy`, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin` and `noindex`. `npm run docs:screenshots` fails when the policy blocks anything on a page.
 - TypeScript is analysed by CodeQL default setup; secret scanning with push protection is on (both set by Remy's setup script).
 - The statistics API has one shared token (`COMMANDO_STATS_TOKEN`), not one per user: rotate it by changing the variable. It returns totals only, so a leaked token reveals no sites or clients.
 - The report endpoint is public by design (plugins carry no credentials for the dashboard). It validates every field, limits bodies to 64 KB and reports to 60 per minute per IP. Anyone could send invented reports; treat the data as information, not as proof.

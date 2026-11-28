@@ -191,6 +191,11 @@ for (const s of samples) await report(s);
 await mkdir(OUT, { recursive: true });
 const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
 const page = await browser.newPage({ viewport: { width: 1360, height: 640 }, deviceScaleFactor: 1, colorScheme: 'light' });
+// Anything the Content-Security-Policy blocks fails the run (a page would be broken in production).
+const blocked = [];
+page.on('console', (message) => {
+  if (/Content.Security.Policy/i.test(message.text())) blocked.push(`${page.url()}: ${message.text()}`);
+});
 const shot = async (name, opts = {}) => page.screenshot({ path: new URL(name, OUT).pathname, ...opts });
 
 await page.goto(`${BASE}/login`);
@@ -254,5 +259,9 @@ await page.goto(`${BASE}/proxy`);
 await shot('proxy.png', { clip: { x: 0, y: 0, width: 1360, height: 520 } });
 
 await browser.close();
+if (blocked.length) {
+  console.error(`Blocked by the Content-Security-Policy:\n${blocked.join('\n')}`);
+  process.exit(1);
+}
 standIn.close();
 console.log(`screenshots saved in ${OUT.pathname}`);
