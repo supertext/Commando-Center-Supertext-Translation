@@ -1,0 +1,7 @@
+# Security contact for Supertext Plugin Health (RFC 9116). Refresh Expires every year (the monthly security check reminds).
+Contact: https://github.com/Supertext/Commando-Center-Supertext-Translation/security/advisories/new
+Contact: mailto:support@supertext.com
+Expires: 2027-11-28T00:00:00.000Z
+Preferred-Languages: en, de, fr, it
+Policy: https://github.com/Supertext/Commando-Center-Supertext-Translation/blob/main/SECURITY.md
+Canonical: https://pluginhealth.supertext.com/.well-known/security.txt

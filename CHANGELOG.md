@@ -6,6 +6,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 ### Added
 
+- **security.txt:** `/.well-known/security.txt` says where to report a vulnerability (RFC 9116).
 - **CSP reports:** `POST /api/v1/csp-report` collects what the Content-Security-Policy of our own pages blocked in browsers (only our hosts, only page paths and blocked origins, never query strings or IP addresses); the new *CSP reports* page lists the last 30 days. New table `csp_violations` (migration 008), setting `COMMANDO_CSP_SITES`.
 - **Security scan:** Semgrep in CI (weekly and on code changes); Dependabot waits 7 days before proposing a new release.
 - **Security headers:** every page sends a strict Content-Security-Policy (scripts only with a per-request nonce, no framing, forms only to the dashboard), HSTS and a `Permissions-Policy`.
