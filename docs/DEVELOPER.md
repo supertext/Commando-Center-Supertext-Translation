@@ -405,6 +405,7 @@ Railway deploys every push to `main` through its GitHub app, which must have acc
 
 ## Dependency updates
 
+- **Base images** in the Dockerfiles are pinned by digest (`image:tag@sha256:…`, OpenSSF Scorecard: *Pinned-Dependencies*), so a build always gets the image that was tested; Dependabot's `docker` entry updates the digests and minor/patch tags weekly (majors are ignored: a new Node or PHP line is a decision). To change a base image by hand, take the new tag's digest from the registry.
 Dependabot opens weekly pull requests (npm minor and patch grouped, GitHub Actions grouped, the Docker base image). Merge when CI is green. Not taken automatically:
 
 - TypeScript 7 (native compiler): Next.js's type checking still needs 5.x.
