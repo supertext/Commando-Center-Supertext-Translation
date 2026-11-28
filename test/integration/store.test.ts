@@ -497,3 +497,22 @@ describe('statistics API', () => {
     expect(statuses.at(-1)).toBe(429);
   });
 });
+
+describe('CSP reports', () => {
+  it('counts reports for our hosts only and keeps no query strings', async () => {
+    const csp = await import('../../src/app/api/v1/csp-report/route');
+    const post = (body: unknown, type = 'application/reports+json') =>
+      csp.POST(new Request('http://center.test/api/v1/csp-report', { method: 'POST', headers: { 'content-type': type }, body: JSON.stringify(body) }));
+    const report = {
+      type: 'csp-violation',
+      body: { documentURL: 'https://wix-production.up.railway.app/settings?instance=secret', blockedURL: 'https://evil.example/a.js', effectiveDirective: 'script-src-elem' },
+    };
+    expect((await post([report, report])).status).toBe(204);
+    expect((await post({ 'csp-report': { 'document-uri': 'https://other.example/', 'blocked-uri': 'inline' } }, 'application/csp-report')).status).toBe(204);
+    expect((await post([report], 'text/plain')).status).toBe(415);
+    const rows = await store.listCspViolations(30);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ site: 'wix-production.up.railway.app', page: '/settings', blocked: 'https://evil.example', count: 2, enforced: true });
+    expect(JSON.stringify(rows)).not.toContain('secret');
+  });
+});

@@ -28,6 +28,7 @@ The dashboard was called *Commando Center* until November 2026. Technical names 
 | `src/lib/auth.ts`, `session.ts` | Signed session cookie, `requireAuth()`, `currentUser()` |
 | `src/lib/oidc.ts`, `oidc-cookies.ts`, `src/app/auth/{login,callback}/route.ts` | Sign-in with a Supertext account (OIDC): discovery, PKCE, ID token check, staff rule, sign-out at the Person Service |
 | `scripts/oidc-stand-in.mjs` | A stand-in Person Service for local development, the screenshots and the image check |
+| `src/app/api/v1/csp-report/route.ts`, `src/lib/csp-report.ts`, `src/app/csp/page.tsx` | CSP violation reports from our own pages (see *CSP reports*) |
 | `src/proxy.ts`, `src/lib/csp.ts` | A fresh nonce and the Content-Security-Policy for every page (see *Code quality and security checks*) |
 | `src/lib/callback.ts` | The callback ping: URL check, address blocklist, the request itself |
 | `src/lib/pinger.ts` | When to ping (throttle, re-ping), stores the result |
@@ -250,6 +251,12 @@ The *Translation proxy* tab shows which plugins send their translations through 
 - Read server-side from the proxy's `GET /api/usage` (`Authorization: Bearer <COMMANDO_PROXY_TOKEN>`, the proxy's `REVIEW_USAGE_TOKEN`; schema in the proxy's developer guide → *Usage API*), 5 s timeout, no redirects, 2 MB cap, invalid entries dropped, cached for a minute in memory.
 - `COMMANDO_PROXY_URL` is set by staff, like `GITHUB_API_URL`; it never comes from a report, so the callback ping's guard doesn't apply. Use the proxy's public URL.
 - The proxy knows plugins by API key, not by site URL, so its rows aren't joined with the installations. Joining them would need the plugins to report their key fingerprint (a protocol change in Plugin Health).
+
+## CSP reports
+
+`POST /api/v1/csp-report` (public, like the report endpoint) takes the CSP violation reports browsers send for our own pages: the Reporting API (`application/reports+json`, from `Reporting-Endpoints` + `report-to`) and the older `report-uri` (`application/csp-report`). `src/lib/csp-report.ts` keeps only reports whose page is on one of our hosts (`CSP_REPORT_SITES`, or `COMMANDO_CSP_SITES`), and of each only the page's host and path, the directive and the blocked source's origin (or `inline`, `eval`, `data`, …): never query strings or fragments, which can carry tokens (Wix's `?instance=`, Shopify's `id_token`, review links' `#token`), and never the sender's IP address. Limits: 64 KB per request, 20 reports per request, 120 requests a minute per IP; at most 500 different violations per site (table `csp_violations`, migration 008; counts keep growing). Always `204` for a readable report. The *CSP reports* page (`src/app/csp/page.tsx`) shows the last 30 days and deletes rows not seen for 90 days.
+
+Pages send their reports here with `report-uri https://pluginhealth.supertext.com/api/v1/csp-report; report-to csp` in their policy and `Reporting-Endpoints: csp="https://pluginhealth.supertext.com/api/v1/csp-report"`. A policy being tried out goes in `Content-Security-Policy-Report-Only` with the same reporting, so it shows what it would block before it is enforced.
 
 ## Statistics API
 

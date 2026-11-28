@@ -40,6 +40,7 @@ All settings are environment variables (Railway service variables).
 | `GITHUB_OWNER` | no | `supertext` | GitHub owner of the plugin repositories (a plugin whose repository has another name than the plugin name it reports, like `supertext-wordpress-polylang` → `Wordpress-Polylang-Supertext-Translation` and `supertext-wordpress-wpml` → `Wordpress-WPML-Supertext-Translation`, is mapped in `src/lib/releases.ts`) |
 | `COMMANDO_PROXY_URL` | no | – | Public base URL of the Supertext translation proxy, for the *Translation proxy* tab (e.g. `https://review-proxy.up.railway.app`) |
 | `COMMANDO_PROXY_TOKEN` | with `COMMANDO_PROXY_URL` | – | The proxy's `REVIEW_USAGE_TOKEN`. Keep it only in Railway's variables |
+| `COMMANDO_CSP_SITES` | no | our hosts (`CSP_REPORT_SITES` in `src/lib/csp-report.ts`) | Comma-separated hosts whose CSP violation reports are kept (`POST /api/v1/csp-report`); reports for other hosts are dropped. Set it when a page moves to a new address |
 | `COMMANDO_STATS_TOKEN` | no | – | Turns on the statistics API (`GET /api/v1/stats`, totals per plugin; developer guide → *Statistics API*). Random string of at least 32 characters (`openssl rand -base64 48`), sent as `Authorization: Bearer <token>`. Change it to revoke access. Keep it only in Railway's variables |
 | `COMMANDO_TIMEZONE` | no | `Europe/Zurich` | Time zone for dates in the UI |
 | `PORT` | no | `8080` | Port the server listens on (Railway sets it) |

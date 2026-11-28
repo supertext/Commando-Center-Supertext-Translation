@@ -388,3 +388,49 @@ export async function lastPingUrl(installationId: number, sql: Sql = db()): Prom
     SELECT url FROM callback_pings WHERE installation_id = ${installationId} ORDER BY checked_at DESC, id DESC LIMIT 1`;
   return row?.url ?? null;
 }
+
+// --- CSP violation reports ------------------------------------------------------------------------
+
+export interface CspViolationRow {
+  site: string;
+  page: string;
+  directive: string;
+  blocked: string;
+  enforced: boolean;
+  count: number;
+  first_seen_at: Date;
+  last_seen_at: Date;
+}
+
+/** At most this many different violations per site; further new ones are dropped (counts still grow). */
+export const MAX_CSP_ROWS_PER_SITE = 500;
+
+/** Counts the violations; new ones only while the site has fewer than MAX_CSP_ROWS_PER_SITE rows. */
+export async function recordCspViolations(
+  rows: { site: string; page: string; directive: string; blocked: string; enforced: boolean }[],
+  sql: Sql = db(),
+): Promise<void> {
+  for (const r of rows) {
+    const updated = await sql`
+      UPDATE csp_violations SET count = count + 1, last_seen_at = now()
+      WHERE site = ${r.site} AND page = ${r.page} AND directive = ${r.directive} AND blocked = ${r.blocked} AND enforced = ${r.enforced}`;
+    if (updated.count) continue;
+    await sql`
+      INSERT INTO csp_violations (site, page, directive, blocked, enforced)
+      SELECT ${r.site}, ${r.page}, ${r.directive}, ${r.blocked}, ${r.enforced}
+      WHERE (SELECT count(*) FROM csp_violations WHERE site = ${r.site}) < ${MAX_CSP_ROWS_PER_SITE}
+      ON CONFLICT (site, page, directive, blocked, enforced) DO UPDATE SET count = csp_violations.count + 1, last_seen_at = now()`;
+  }
+}
+
+/** The violations seen in the last `days` days, newest first. */
+export async function listCspViolations(days = 30, sql: Sql = db()): Promise<CspViolationRow[]> {
+  return sql<CspViolationRow[]>`
+    SELECT site, page, directive, blocked, enforced, count, first_seen_at, last_seen_at FROM csp_violations
+    WHERE last_seen_at > now() - make_interval(days => ${days}) ORDER BY last_seen_at DESC LIMIT 1000`;
+}
+
+/** Forgets violations not seen for `days` days (they were fixed). */
+export async function pruneCspViolations(days = 90, sql: Sql = db()): Promise<void> {
+  await sql`DELETE FROM csp_violations WHERE last_seen_at < now() - make_interval(days => ${days})`;
+}

@@ -16,6 +16,9 @@ export function contentSecurityPolicy(nonce: string, dev = false): string {
     "base-uri 'none'",
     "form-action 'self'",
     "frame-ancestors 'none'",
+    // Violations go to our own collector (src/app/api/v1/csp-report).
+    'report-uri /api/v1/csp-report',
+    'report-to csp',
   ].join('; ');
 }
 

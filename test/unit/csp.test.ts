@@ -6,6 +6,7 @@ describe('Content-Security-Policy', () => {
     const csp = contentSecurityPolicy('abc');
     expect(csp).toContain("script-src 'self' 'nonce-abc' 'strict-dynamic'");
     expect(csp).not.toContain('unsafe-eval');
+    expect(csp).toContain('report-uri /api/v1/csp-report');
     for (const part of ["default-src 'self'", "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'"]) {
       expect(csp).toContain(part);
     }

@@ -258,6 +258,15 @@ await shot('client.png', { fullPage: true });
 await page.goto(`${BASE}/proxy`);
 await shot('proxy.png', { clip: { x: 0, y: 0, width: 1360, height: 520 } });
 
+// CSP reports: two invented violations, as browsers send them (Reporting API and report-uri).
+const cspReport = (body, type) => fetch(`${BASE}/api/v1/csp-report`, { method: 'POST', headers: { 'content-type': type }, body: JSON.stringify(body) });
+for (let i = 0; i < 3; i++) {
+  await cspReport([{ type: 'csp-violation', body: { documentURL: 'https://integrations.supertext.com/en/support', blockedURL: 'https://challenges.cloudflare.com/turnstile/v0/api.js', effectiveDirective: 'script-src-elem', disposition: 'enforce' } }], 'application/reports+json');
+}
+await cspReport({ 'csp-report': { 'document-uri': 'https://shopify-production-d86d.up.railway.app/app', 'blocked-uri': 'inline', 'violated-directive': 'script-src-elem', disposition: 'report' } }, 'application/csp-report');
+await page.goto(`${BASE}/csp`);
+await shot('csp-reports.png', { clip: { x: 0, y: 0, width: 1360, height: 520 } });
+
 await browser.close();
 if (blocked.length) {
   console.error(`Blocked by the Content-Security-Policy:\n${blocked.join('\n')}`);

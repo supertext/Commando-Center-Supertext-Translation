@@ -10,6 +10,7 @@ export function proxy(request: NextRequest) {
   headers.set('Content-Security-Policy', csp);
   const response = NextResponse.next({ request: { headers } });
   response.headers.set('Content-Security-Policy', csp);
+  response.headers.set('Reporting-Endpoints', 'csp="/api/v1/csp-report"');
   return response;
 }
 

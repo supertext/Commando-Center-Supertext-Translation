@@ -132,6 +132,12 @@ The client page lists the client's installations with their versions, and lets y
 
 If the tab says it isn't connected, `COMMANDO_PROXY_URL` and `COMMANDO_PROXY_TOKEN` are missing (see the installation guide).
 
+## CSP reports
+
+*CSP reports* lists what the Content-Security-Policy of our own pages blocked in visitors' browsers in the last 30 days: the hosted apps (HubSpot, Mailchimp, Shopify, Wix), Plugin Health, the translation proxy, the Toolbox and the integrations site. Each row is one page, directive and blocked source with how often it happened. *Blocked* means something on a live page didn't load or run, so a page may be broken: check it and fix the policy or the page. *Report only* rows come from a stricter policy being tried out; they show what it would block before it's switched on. Rows disappear 90 days after the last report.
+
+![CSP reports: a blocked script on the support page and a report-only inline script in the Shopify app](images/csp-reports.png)
+
 ## Delete
 
 - **Delete installation** (installation page) removes it and its history, for example a test site or a site with an outdated URL. If the plugin reports again, it comes back as a new installation.
