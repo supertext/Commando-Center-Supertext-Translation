@@ -1,0 +1,31 @@
+# Security scan (the second layer of the audit, project doc claude/security-audit-plugin-health.md): Semgrep on the code,
+# weekly and on code changes. Accepted findings carry a `nosemgrep: <rule> -- <reason>` comment on the
+# line before. Anything else fails the run.
+name: Security scan
+
+on:
+  push:
+    branches: [main]
+    paths: ['src/**', 'plugin-health/**', 'scripts/**', 'package.json', 'package-lock.json', 'Dockerfile', '.github/**']
+  pull_request:
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Semgrep
+        run: |
+          pipx install semgrep==1.187.0
+          semgrep scan --metrics=off --error --quiet \
+            --config p/default --config p/typescript --config p/react --config p/nodejsscan --config p/secrets \
+            --config p/owasp-top-ten --config p/github-actions --config p/dockerfile \
+            --exclude node_modules --exclude dist --exclude build --exclude .next --exclude vendor --exclude test-deps .

@@ -44,6 +44,7 @@ class UrllibTransport:
             request.url, data=request.body, headers=dict(request.headers), method=request.method
         )
         try:
+            # nosemgrep: dynamic-urllib-use-detected -- the report URL is the fixed Plugin Health address (or SUPERTEXT_REPORT_URL from the site's own config), https only
             with urllib.request.urlopen(req, timeout=request.timeout) as response:
                 return HttpResponse(response.status, response.read(64 * 1024))
         except urllib.error.HTTPError as error:

@@ -2,6 +2,9 @@ version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/"
+    # New versions wait a week before Dependabot proposes them (time for a bad release to be pulled).
+    cooldown:
+      default-days: 7
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
@@ -16,6 +19,9 @@ updates:
         update-types: ["minor", "patch"]
   - package-ecosystem: "docker"
     directory: "/"
+    # New versions wait a week before Dependabot proposes them (time for a bad release to be pulled).
+    cooldown:
+      default-days: 7
     schedule:
       interval: "weekly"
     ignore:
@@ -24,6 +30,9 @@ updates:
   # Supertext Plugin Health (plugin-health/): development dependencies only, the packages have none at runtime.
   - package-ecosystem: "npm"
     directory: "/plugin-health/typescript"
+    # New versions wait a week before Dependabot proposes them (time for a bad release to be pulled).
+    cooldown:
+      default-days: 7
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
@@ -37,6 +46,9 @@ updates:
         update-types: ["minor", "patch"]
   - package-ecosystem: "composer"
     directory: "/plugin-health/php"
+    # New versions wait a week before Dependabot proposes them (time for a bad release to be pulled).
+    cooldown:
+      default-days: 7
     schedule:
       interval: "weekly"
     groups:
@@ -44,6 +56,9 @@ updates:
         update-types: ["minor", "patch"]
   - package-ecosystem: "pip"
     directory: "/plugin-health/python"
+    # New versions wait a week before Dependabot proposes them (time for a bad release to be pulled).
+    cooldown:
+      default-days: 7
     schedule:
       interval: "weekly"
     groups:
@@ -51,6 +66,9 @@ updates:
         update-types: ["minor", "patch"]
   - package-ecosystem: "nuget"
     directory: "/plugin-health/dotnet"
+    # New versions wait a week before Dependabot proposes them (time for a bad release to be pulled).
+    cooldown:
+      default-days: 7
     schedule:
       interval: "weekly"
     groups:
@@ -58,6 +76,9 @@ updates:
         update-types: ["minor", "patch"]
   - package-ecosystem: "maven"
     directory: "/plugin-health/java"
+    # New versions wait a week before Dependabot proposes them (time for a bad release to be pulled).
+    cooldown:
+      default-days: 7
     schedule:
       interval: "weekly"
     groups:
@@ -65,6 +86,9 @@ updates:
         update-types: ["minor", "patch"]
   - package-ecosystem: "github-actions"
     directory: "/"
+    # New versions wait a week before Dependabot proposes them (time for a bad release to be pulled).
+    cooldown:
+      default-days: 7
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5

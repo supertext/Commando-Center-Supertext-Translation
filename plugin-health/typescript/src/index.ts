@@ -294,6 +294,7 @@ export interface PingResponse {
 export function pingResponse(challenge: string | null | undefined, options: { plugin: string; enabled: boolean }): PingResponse {
   const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
   if (!options.enabled) return { status: 404, headers, body: '{"ok":false}' }
+  // nosemgrep: regex_dos -- CHALLENGE is an anchored fixed-length pattern
   if (typeof challenge !== 'string' || !CHALLENGE.test(challenge)) return { status: 400, headers, body: '{"ok":false}' }
   return { status: 200, headers, body: JSON.stringify({ ok: true, plugin: options.plugin, challenge }) }
 }

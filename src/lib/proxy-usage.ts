@@ -30,6 +30,7 @@ export type ProxyUsage =
   | { status: 'not_configured' }
   | { status: 'error'; detail: string };
 
+// nosemgrep: regex_dos -- single character class, no repetition; input is length-capped first
 const str = (v: unknown, max: number): string | null => (typeof v === 'string' && v.length <= max && !/[\u0000-\u001f]/.test(v) ? v : null);
 const count = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null);
 const time = (v: unknown): string | null => {
